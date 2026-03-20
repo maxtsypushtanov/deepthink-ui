@@ -1,0 +1,108 @@
+import { useState } from 'react';
+import type { ThinkingStep } from '@/types';
+import { cn, formatDuration } from '@/lib/utils';
+import { ChevronDown, ChevronRight, Brain, Clock, GitBranch, TreePine, Sparkles, Target } from 'lucide-react';
+
+interface Props {
+  steps: ThinkingStep[];
+  strategy: string;
+  isLive?: boolean;
+}
+
+const STRATEGY_BADGE: Record<string, { label: string; color: string; icon: React.ComponentType<any> }> = {
+  cot: { label: 'Chain-of-Thought', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20', icon: Brain },
+  budget_forcing: { label: 'Budget Forcing', color: 'bg-purple-500/10 text-purple-400 border-purple-500/20', icon: Sparkles },
+  best_of_n: { label: 'Best-of-N', color: 'bg-green-500/10 text-green-400 border-green-500/20', icon: GitBranch },
+  tree_of_thoughts: { label: 'Tree of Thoughts', color: 'bg-orange-500/10 text-orange-400 border-orange-500/20', icon: TreePine },
+  none: { label: 'Passthrough', color: 'bg-gray-500/10 text-gray-400 border-gray-500/20', icon: Target },
+};
+
+export function ThinkingPanel({ steps, strategy, isLive }: Props) {
+  const [open, setOpen] = useState(isLive || false);
+
+  const badge = STRATEGY_BADGE[strategy] || STRATEGY_BADGE.cot;
+  const BadgeIcon = badge.icon;
+
+  return (
+    <div className="mb-3 rounded-lg border border-border bg-card/50 overflow-hidden">
+      {/* Header — clickable to collapse */}
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/30"
+      >
+        {open ? (
+          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+        )}
+
+        <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium', badge.color)}>
+          <BadgeIcon className="h-3 w-3" />
+          {badge.label}
+        </span>
+
+        <span className="text-[10px] text-muted-foreground">
+          {steps.length} step{steps.length !== 1 ? 's' : ''}
+        </span>
+
+        {isLive && (
+          <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground">
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
+            thinking...
+          </span>
+        )}
+      </button>
+
+      {/* Steps */}
+      {open && (
+        <div className="border-t border-border px-3 py-2">
+          {steps.map((step, i) => (
+            <div
+              key={i}
+              className={cn(
+                'animate-fade-in relative border-l-2 py-2 pl-4',
+                getStepColor(step),
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-foreground">
+                  {step.step_number}
+                </span>
+                <span className="text-xs font-medium text-foreground">
+                  {step.strategy.replace('_', ' ')}
+                </span>
+                {step.duration_ms > 0 && (
+                  <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                    <Clock className="h-2.5 w-2.5" />
+                    {formatDuration(step.duration_ms)}
+                  </span>
+                )}
+                {step.metadata?.score !== undefined && (
+                  <span className="rounded bg-accent px-1.5 py-0.5 text-[10px] font-mono text-foreground">
+                    score: {Number(step.metadata.score).toFixed(2)}
+                  </span>
+                )}
+              </div>
+              {step.content && (
+                <p className="mt-1 text-xs text-muted-foreground line-clamp-3">
+                  {step.content}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getStepColor(step: ThinkingStep): string {
+  const s = step.strategy;
+  if (s === 'cot') return 'border-blue-400/40';
+  if (s === 'budget_forcing') return 'border-purple-400/40';
+  if (s === 'best_of_n') return 'border-green-400/40';
+  if (s === 'tree_of_thoughts') return 'border-orange-400/40';
+  if (step.metadata?.type === 'vote') return 'border-emerald-400/40';
+  if (step.metadata?.type === 'synthesis') return 'border-amber-400/40';
+  return 'border-muted-foreground/40';
+}
