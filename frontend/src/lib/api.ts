@@ -17,7 +17,7 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
 export const api = {
   listConversations: () => fetchJSON<any[]>('/api/conversations'),
 
-  createConversation: (title = 'New Chat') =>
+  createConversation: (title = 'Новый чат') =>
     fetchJSON<any>('/api/conversations', {
       method: 'POST',
       body: JSON.stringify({ title }),

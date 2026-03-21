@@ -13,22 +13,22 @@ interface Props {
 const PROVIDER_META: Record<string, { label: string; description: string; defaultUrl: string }> = {
   openrouter: {
     label: 'OpenRouter',
-    description: 'Access to 200+ models via single API key',
+    description: 'Доступ к 200+ моделям через один API-ключ',
     defaultUrl: 'https://openrouter.ai/api/v1',
   },
   deepseek: {
     label: 'DeepSeek',
-    description: 'DeepSeek V3 and R1 with native reasoning',
+    description: 'DeepSeek V3 и R1 с нативным рассуждением',
     defaultUrl: 'https://api.deepseek.com',
   },
   cloudru: {
     label: 'Cloud.ru',
-    description: 'Foundation Models on Russian servers',
+    description: 'Foundation Models на российских серверах',
     defaultUrl: 'https://api.cloud.ru/v1',
   },
   custom: {
-    label: 'Custom Endpoint',
-    description: 'Any OpenAI-compatible API',
+    label: 'Свой эндпоинт',
+    description: 'Любой OpenAI-совместимый API',
     defaultUrl: 'http://localhost:11434/v1',
   },
 };
@@ -76,7 +76,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
       <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="text-base font-semibold">Settings</h2>
+          <h2 className="text-base font-semibold">Настройки</h2>
           <button
             onClick={() => onOpenChange(false)}
             className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -98,7 +98,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {t === 'providers' ? 'Providers' : 'Reasoning'}
+              {t === 'providers' ? 'Провайдеры' : 'Рассуждение'}
             </button>
           ))}
         </div>
@@ -107,6 +107,18 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
         <div className="max-h-[60vh] overflow-y-auto px-5 py-4">
           {tab === 'providers' && (
             <div className="space-y-4">
+              <div className="rounded-lg border border-border p-3">
+                <label className="text-sm font-medium">Активный провайдер</label>
+                <select
+                  value={settings.provider}
+                  onChange={(e) => updateSettings({ provider: e.target.value })}
+                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                >
+                  {Object.entries(PROVIDER_META).map(([key, meta]) => (
+                    <option key={key} value={key}>{meta.label}</option>
+                  ))}
+                </select>
+              </div>
               {Object.entries(PROVIDER_META).map(([key, meta]) => {
                 const existing = providers.find((p) => p.provider === key);
                 return (
@@ -118,7 +130,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                       </div>
                       {existing && (
                         <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-400">
-                          <Check className="h-3 w-3" /> Connected
+                          <Check className="h-3 w-3" /> Подключён
                         </span>
                       )}
                     </div>
@@ -157,7 +169,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                         )}
                       >
                         {saving === key ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                        Save
+                        Сохранить
                       </button>
                     </div>
                   </div>
@@ -169,8 +181,8 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
           {tab === 'reasoning' && (
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium">Temperature</label>
-                <p className="text-xs text-muted-foreground mb-2">Controls randomness (0 = deterministic, 1 = creative)</p>
+                <label className="text-sm font-medium">Температура</label>
+                <p className="text-xs text-muted-foreground mb-2">Управляет случайностью (0 = детерминированный, 1 = творческий)</p>
                 <input
                   type="range"
                   min="0"
@@ -184,8 +196,8 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
               </div>
 
               <div>
-                <label className="text-sm font-medium">Budget Forcing Rounds</label>
-                <p className="text-xs text-muted-foreground mb-2">How many times to force the model to continue thinking</p>
+                <label className="text-sm font-medium">Раунды углублённого анализа</label>
+                <p className="text-xs text-muted-foreground mb-2">Сколько раз модель продолжит размышлять</p>
                 <input
                   type="range"
                   min="1"
@@ -198,8 +210,8 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
               </div>
 
               <div>
-                <label className="text-sm font-medium">Best-of-N Candidates</label>
-                <p className="text-xs text-muted-foreground mb-2">Number of parallel answers to generate</p>
+                <label className="text-sm font-medium">Кандидатов Best-of-N</label>
+                <p className="text-xs text-muted-foreground mb-2">Количество параллельных ответов</p>
                 <input
                   type="range"
                   min="2"
@@ -212,8 +224,8 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
               </div>
 
               <div>
-                <label className="text-sm font-medium">Tree Breadth</label>
-                <p className="text-xs text-muted-foreground mb-2">Branches per level in Tree of Thoughts</p>
+                <label className="text-sm font-medium">Ширина дерева</label>
+                <p className="text-xs text-muted-foreground mb-2">Ветвей на уровень в Дереве мыслей</p>
                 <input
                   type="range"
                   min="2"
@@ -226,8 +238,8 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
               </div>
 
               <div>
-                <label className="text-sm font-medium">Tree Depth</label>
-                <p className="text-xs text-muted-foreground mb-2">Depth levels in Tree of Thoughts</p>
+                <label className="text-sm font-medium">Глубина дерева</label>
+                <p className="text-xs text-muted-foreground mb-2">Уровней глубины в Дереве мыслей</p>
                 <input
                   type="range"
                   min="1"

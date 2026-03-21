@@ -6,6 +6,15 @@ import { cn, formatTimestamp, formatDuration } from '@/lib/utils';
 import { ThinkingPanel } from '@/components/reasoning/ThinkingPanel';
 import { User, Bot, Copy, Check } from 'lucide-react';
 
+const STRATEGY_LABELS_RU: Record<string, string> = {
+  cot: 'Цепочка мыслей',
+  budget_forcing: 'Углублённый анализ',
+  best_of_n: 'Лучший из N',
+  tree_of_thoughts: 'Дерево мыслей',
+  none: 'Прямой ответ',
+  auto: 'Авто',
+};
+
 interface Props {
   message: Message;
 }
@@ -44,11 +53,11 @@ export function ChatMessage({ message }: Props) {
             {isUser ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
           </div>
           <span className="text-xs font-medium text-muted-foreground">
-            {isUser ? 'You' : message.model || 'Assistant'}
+            {isUser ? 'Вы' : message.model || 'Ассистент'}
           </span>
           {message.reasoning_strategy && message.reasoning_strategy !== 'none' && (
             <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-              {message.reasoning_strategy.replace('_', ' ')}
+              {STRATEGY_LABELS_RU[message.reasoning_strategy] || message.reasoning_strategy.replace('_', ' ')}
             </span>
           )}
           <span className="text-[10px] text-muted-foreground">
@@ -88,11 +97,11 @@ export function ChatMessage({ message }: Props) {
             >
               {copied ? (
                 <>
-                  <Check className="h-3 w-3" /> Copied
+                  <Check className="h-3 w-3" /> Скопировано
                 </>
               ) : (
                 <>
-                  <Copy className="h-3 w-3" /> Copy
+                  <Copy className="h-3 w-3" /> Копировать
                 </>
               )}
             </button>

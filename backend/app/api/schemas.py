@@ -18,6 +18,7 @@ class ChatRequest(BaseModel):
     best_of_n: int = Field(default=3, ge=2, le=7)
     tree_breadth: int = Field(default=3, ge=2, le=5)
     tree_depth: int = Field(default=2, ge=1, le=4)
+    clarification_context: str | None = None
 
 
 class ConversationCreate(BaseModel):

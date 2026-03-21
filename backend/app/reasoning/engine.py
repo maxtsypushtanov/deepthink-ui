@@ -66,68 +66,69 @@ class SessionContext:
 
 # ── CoT Injection Prompts ──
 
-COT_SYSTEM_PROMPT = """You are a world-class reasoning assistant. For every question, you MUST think step by step before giving your final answer.
+COT_SYSTEM_PROMPT = """Ты — первоклассный помощник-мыслитель. Для каждого вопроса ты ОБЯЗАН размышлять пошагово, прежде чем дать финальный ответ.
 
-Structure your response as follows:
-1. First, analyze the problem carefully
-2. Break it down into smaller parts
-3. Consider edge cases and potential pitfalls
-4. Reason through each part systematically
-5. Synthesize your findings into a clear conclusion
+Структура ответа:
+1. Внимательно проанализируй задачу
+2. Разбей её на части
+3. Рассмотри крайние случаи и возможные ловушки
+4. Последовательно проработай каждую часть
+5. Синтезируй выводы в ясное заключение
 
-Always show your reasoning process explicitly. Start your thinking with <thinking> and end with </thinking>, then provide your final answer after.</s>"""
+Всегда показывай ход рассуждений. Начни размышления с <thinking>, заверши </thinking>, затем дай финальный ответ. Отвечай на языке пользователя.</s>"""
 
-BUDGET_FORCING_CONTINUATION = "\n\nWait, let me reconsider and think more carefully about this..."
+BUDGET_FORCING_CONTINUATION = "\n\nПодожди, дай мне пересмотреть и подумать об этом более тщательно..."
 
-DOMAIN_CLASSIFIER_PROMPT = """Classify the following message into exactly one domain.
-Valid domains: software_engineering, mathematics, medicine, law, finance, science, creative_writing, business, philosophy, general
+DOMAIN_CLASSIFIER_PROMPT = """Классифицируй следующее сообщение в одну из категорий.
+Допустимые категории: software_engineering, mathematics, medicine, law, finance, science, creative_writing, business, philosophy, general
 
-Message: {message}
+Сообщение: {message}
 
-Respond with ONLY the domain name, nothing else."""
+Ответь ТОЛЬКО названием категории, одним словом (или словосочетанием через _), без пояснений."""
 
-COMPLEXITY_CLASSIFIER_PROMPT = """Rate the complexity of the following question on a scale of 1-5:
-1 = Simple factual question (e.g., "What is 2+2?")
-2 = Basic explanation needed (e.g., "What is photosynthesis?")
-3 = Multi-step reasoning (e.g., "Compare the economic policies of X and Y")
-4 = Complex analysis (e.g., "Design an algorithm for...")
-5 = Deep reasoning required (e.g., "Prove that...", "What are the implications of...")
+COMPLEXITY_CLASSIFIER_PROMPT = """Оцени сложность следующего вопроса по шкале 1-5:
+1 = Простой факт или арифметика (например, «Сколько будет 2+2?», «Столица Франции?»)
+2 = Нужно базовое объяснение (например, «Что такое фотосинтез?»)
+3 = Многошаговое рассуждение (например, «Сравни экономическую политику X и Y»)
+4 = Сложный анализ (например, «Разработай алгоритм для...»)
+5 = Глубокое рассуждение (например, «Докажи, что...», «Каковы последствия...»)
 
-Question: {question}
+Вопрос: {question}
 
-Respond with ONLY a single digit (1-5), nothing else."""
+Ответь ТОЛЬКО одной цифрой (1-5), без пояснений."""
 
 
 # ── Persona Builder ──
 
-PERSONA_TEMPLATE = """You are a world-class expert in {domain}.
-Reasoning style: {reasoning_style}.
-User's goal: {intent_description}.
-Conversation turn: {turn}. Expertise level: {expertise_level}.
-Adapt depth, terminology and examples accordingly.
+PERSONA_TEMPLATE = """Ты — эксперт мирового уровня в области: {domain}.
+Стиль рассуждений: {reasoning_style}.
+Цель пользователя: {intent_description}.
+Номер сообщения в диалоге: {turn}. Уровень подготовки: {expertise_level}.
+Адаптируй глубину, терминологию и примеры соответственно.
+ВАЖНО: Всегда отвечай на языке пользователя. Если вопрос на русском — отвечай на русском.
 
-Structure your response clearly. When reasoning, start your thinking with <thinking> and end with </thinking>, then provide your final answer after."""
+Структурируй ответ чётко. Для рассуждений оборачивай мысли в <thinking> и </thinking>, затем давай финальный ответ."""
 
 STRATEGY_PERSONA_MAP = {
-    "none": {"reasoning_style": "Direct and concise", "intent_description": "Get a straightforward answer"},
-    "cot": {"reasoning_style": "Step-by-step analytical thinking", "intent_description": "Understand the reasoning process"},
-    "budget_forcing": {"reasoning_style": "Deep iterative reflection with self-correction", "intent_description": "Explore the problem thoroughly with multiple passes"},
-    "best_of_n": {"reasoning_style": "Multi-perspective analysis with consensus", "intent_description": "Compare multiple approaches and find the best answer"},
-    "tree_of_thoughts": {"reasoning_style": "Systematic exploration of reasoning branches", "intent_description": "Map out all possible approaches and evaluate each"},
-    "auto": {"reasoning_style": "Adaptive based on complexity", "intent_description": "Solve the problem optimally"},
+    "none": {"reasoning_style": "Прямой и лаконичный", "intent_description": "Получить чёткий ответ"},
+    "cot": {"reasoning_style": "Пошаговое аналитическое мышление", "intent_description": "Понять процесс рассуждений"},
+    "budget_forcing": {"reasoning_style": "Глубокая итеративная рефлексия с самокоррекцией", "intent_description": "Тщательно исследовать задачу в несколько проходов"},
+    "best_of_n": {"reasoning_style": "Мульти-перспективный анализ с консенсусом", "intent_description": "Сравнить несколько подходов и найти лучший ответ"},
+    "tree_of_thoughts": {"reasoning_style": "Систематическое исследование ветвей рассуждений", "intent_description": "Построить карту всех подходов и оценить каждый"},
+    "auto": {"reasoning_style": "Адаптивный, зависит от сложности", "intent_description": "Решить задачу оптимально"},
 }
 
 DOMAIN_LABELS = {
-    "software_engineering": "software architect",
-    "mathematics": "mathematician",
-    "medicine": "medical researcher",
-    "law": "legal analyst",
-    "finance": "financial analyst",
-    "science": "research scientist",
-    "creative_writing": "creative writing expert",
-    "business": "business strategist",
-    "philosophy": "philosopher",
-    "general": "reasoning assistant",
+    "software_engineering": "архитектор ПО",
+    "mathematics": "математик",
+    "medicine": "исследователь в медицине",
+    "law": "правовой аналитик",
+    "finance": "финансовый аналитик",
+    "science": "учёный-исследователь",
+    "creative_writing": "эксперт по художественному тексту",
+    "business": "бизнес-стратег",
+    "philosophy": "философ",
+    "general": "универсальный помощник",
 }
 
 
@@ -151,7 +152,7 @@ class PersonaBuilder:
         persona_map = STRATEGY_PERSONA_MAP.get(strategy, STRATEGY_PERSONA_MAP["auto"])
 
         return PERSONA_TEMPLATE.format(
-            domain=DOMAIN_LABELS.get(domain, "reasoning assistant"),
+            domain=DOMAIN_LABELS.get(domain, "универсальный помощник"),
             reasoning_style=persona_map["reasoning_style"],
             intent_description=persona_map["intent_description"],
             turn=turn,
@@ -161,18 +162,18 @@ class PersonaBuilder:
     @staticmethod
     def get_label(strategy: str) -> str:
         labels = {
-            "none": "Direct answer",
-            "cot": "Step-by-step reasoning",
-            "budget_forcing": "Deep iterative analysis",
-            "best_of_n": "Multi-perspective analysis",
-            "tree_of_thoughts": "Systematic tree exploration",
-            "auto": "Adaptive reasoning",
+            "none": "Прямой ответ",
+            "cot": "Пошаговое рассуждение",
+            "budget_forcing": "Углублённый итеративный анализ",
+            "best_of_n": "Мульти-перспективный анализ",
+            "tree_of_thoughts": "Систематическое исследование дерева",
+            "auto": "Адаптивное рассуждение",
         }
-        return labels.get(strategy, "Reasoning")
+        return labels.get(strategy, "Рассуждение")
 
     @staticmethod
     def get_preview(domain: str) -> str:
-        return f"World-class {DOMAIN_LABELS.get(domain, 'reasoning assistant')}"
+        return f"Эксперт мирового уровня — {DOMAIN_LABELS.get(domain, 'универсальный помощник')}"
 
 
 class ReasoningEngine:
@@ -181,6 +182,34 @@ class ReasoningEngine:
     def __init__(self, provider: BaseLLMProvider, model: str):
         self.provider = provider
         self.model = model
+
+    # ── Static helpers ──
+
+    @staticmethod
+    def _strip_thinking_tags(text: str) -> str:
+        """Remove <thinking>...</thinking> blocks from final output."""
+        import re
+        # Remove complete thinking blocks
+        cleaned = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL)
+        # Remove orphan opening/closing tags
+        cleaned = cleaned.replace('<thinking>', '').replace('</thinking>', '')
+        return cleaned.strip()
+
+    @staticmethod
+    def _check_clarification(text: str) -> tuple[bool, str]:
+        """Check if model is asking for clarification."""
+        import re
+        patterns = [
+            r'\[УТОЧНЕНИЕ\]:\s*(.+)',
+            r'УТОЧНЕНИЕ:\s*(.+)',
+            r'\[CLARIFICATION\]:\s*(.+)',
+            r'CLARIFICATION:\s*(.+)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                return True, match.group(1).strip()
+        return False, ""
 
     # ── Public API ──
 
@@ -303,7 +332,7 @@ class ReasoningEngine:
         steps.append(ThinkingStep(
             step_number=1,
             strategy="cot",
-            content="Applied Chain-of-Thought system prompt injection",
+            content="Применена система пошагового рассуждения",
             duration_ms=step_ms,
         ))
 
@@ -340,7 +369,7 @@ class ReasoningEngine:
                     "event": "thinking_step",
                     "data": {
                         "step": round_num + 1,
-                        "label": f"Budget forcing round {round_num + 1}",
+                        "label": f"Раунд углублённого анализа {round_num + 1}",
                         "type": "budget_forcing",
                     },
                 }
@@ -376,7 +405,7 @@ class ReasoningEngine:
     ) -> AsyncIterator[dict]:
         yield {
             "event": "thinking_step",
-            "data": {"step": 1, "label": f"Generating {n} candidate answers...", "type": "best_of_n"},
+            "data": {"step": 1, "label": f"Генерация {n} вариантов ответа...", "type": "best_of_n"},
         }
 
         # Generate N responses in parallel
@@ -396,8 +425,10 @@ class ReasoningEngine:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         candidates = []
+        errors = []
         for r in results:
             if isinstance(r, Exception):
+                errors.append(str(r))
                 continue
             idx, content = r
             candidates.append(content)
@@ -412,12 +443,13 @@ class ReasoningEngine:
         gen_ms = int((time.monotonic() - step_start) * 1000)
 
         if not candidates:
-            yield {"event": "content_delta", "data": {"content": "Error: All candidates failed."}}
+            error_detail = "; ".join(errors[:3]) if errors else "Неизвестная ошибка"
+            yield {"event": "content_delta", "data": {"content": f"Ошибка: не удалось сгенерировать ответы. {error_detail}"}}
             return
 
         yield {
             "event": "thinking_step",
-            "data": {"step": n + 1, "label": "Voting for the best answer...", "type": "voting"},
+            "data": {"step": n + 1, "label": "Голосование за лучший ответ...", "type": "voting"},
         }
 
         # Vote: ask the model to pick the best
@@ -458,7 +490,7 @@ class ReasoningEngine:
 
         yield {
             "event": "thinking_step",
-            "data": {"step": 1, "label": "Building reasoning tree...", "type": "tree_init"},
+            "data": {"step": 1, "label": "Построение дерева рассуждений...", "type": "tree_init"},
         }
 
         # Level 0: Generate initial thought branches
@@ -470,7 +502,7 @@ class ReasoningEngine:
                 "event": "thinking_step",
                 "data": {
                     "step": step_num,
-                    "label": f"Depth {level + 1}: Exploring {breadth} branches...",
+                    "label": f"Глубина {level + 1}: исследование {breadth} ветвей...",
                     "type": "tree_explore",
                 },
             }
@@ -517,7 +549,7 @@ class ReasoningEngine:
                 "event": "thinking_step",
                 "data": {
                     "step": step_num,
-                    "label": f"Depth {level + 1}: Scored {len(scored_branches)} branches",
+                    "label": f"Глубина {level + 1}: оценено {len(scored_branches)} ветвей",
                     "type": "tree_score",
                     "branches": [
                         {"id": b["id"], "score": b["score"], "preview": b["thought"][:100]}
@@ -530,7 +562,7 @@ class ReasoningEngine:
         best_path = self._get_best_path(tree)
         yield {
             "event": "thinking_step",
-            "data": {"step": step_num + 1, "label": "Synthesizing final answer...", "type": "tree_synthesis"},
+            "data": {"step": step_num + 1, "label": "Синтез финального ответа...", "type": "tree_synthesis"},
         }
 
         synthesis = await self._synthesize_from_tree(user_query, best_path)
@@ -562,14 +594,16 @@ class ReasoningEngine:
             messages=[LLMMessage(role="user", content=prompt)],
             model=self.model,
             temperature=0.0,
-            max_tokens=10,
+            max_tokens=20,
         )
 
         try:
             resp = await self.provider.complete(req)
-            domain = resp.content.strip().lower().replace(" ", "_")
-            if domain in VALID_DOMAINS:
-                return domain
+            raw = resp.content.strip().lower().replace(" ", "_").strip(".,!?\"'`")
+            # Try to find a valid domain in the response
+            for domain in VALID_DOMAINS:
+                if domain in raw:
+                    return domain
         except Exception:
             pass
         return "general"
@@ -594,14 +628,12 @@ class ReasoningEngine:
         except (ValueError, IndexError):
             score = 3  # Default to medium
 
-        if score <= 1:
+        if score <= 2:
             return ReasoningStrategy.NONE
-        elif score == 2:
-            return ReasoningStrategy.COT
         elif score == 3:
-            return ReasoningStrategy.BUDGET_FORCING
+            return ReasoningStrategy.COT
         elif score == 4:
-            return ReasoningStrategy.BEST_OF_N
+            return ReasoningStrategy.BUDGET_FORCING
         else:
             return ReasoningStrategy.TREE_OF_THOUGHTS
 
@@ -609,15 +641,15 @@ class ReasoningEngine:
 
     async def _generate_branches(self, query: str, parent_thought: str | None, n: int) -> list[str]:
         if parent_thought:
-            prompt = f"""Given this problem: {query}
+            prompt = f"""Задача: {query}
 
-And this line of reasoning: {parent_thought}
+Текущая линия рассуждений: {parent_thought}
 
-Generate {n} DIFFERENT follow-up lines of reasoning that build on this thought. Each should explore a distinct angle or approach. Return them numbered 1-{n}, one per line."""
+Сгенерируй {n} РАЗЛИЧНЫХ продолжений этой мысли. Каждое должно исследовать другой подход. Пронумеруй их 1-{n}, по одному на строку."""
         else:
-            prompt = f"""Given this problem: {query}
+            prompt = f"""Задача: {query}
 
-Generate {n} DIFFERENT initial approaches to solving this problem. Each should take a distinct angle. Return them numbered 1-{n}, one per line."""
+Сгенерируй {n} РАЗЛИЧНЫХ начальных подходов к решению этой задачи. Каждый должен предлагать другой угол зрения. Пронумеруй их 1-{n}, по одному на строку."""
 
         req = LLMRequest(
             messages=[LLMMessage(role="user", content=prompt)],
@@ -637,12 +669,12 @@ Generate {n} DIFFERENT initial approaches to solving this problem. Each should t
         return branches[:n]
 
     async def _score_branch(self, query: str, thought: str) -> float:
-        prompt = f"""Rate how promising this line of reasoning is for answering the question.
+        prompt = f"""Оцени, насколько перспективна эта линия рассуждений для ответа на вопрос.
 
-Question: {query}
-Reasoning: {thought}
+Вопрос: {query}
+Рассуждение: {thought}
 
-Rate from 0.0 to 1.0 where 1.0 = extremely promising. Respond with ONLY a decimal number."""
+Оцени от 0.0 до 1.0, где 1.0 = крайне перспективно. Ответь ТОЛЬКО десятичным числом."""
 
         req = LLMRequest(
             messages=[LLMMessage(role="user", content=prompt)],
@@ -652,9 +684,15 @@ Rate from 0.0 to 1.0 where 1.0 = extremely promising. Respond with ONLY a decima
         )
         try:
             resp = await self.provider.complete(req)
-            return float(resp.content.strip())
-        except (ValueError, Exception):
-            return 0.5
+            # Extract first float-like pattern from response
+            import re
+            match = re.search(r'(\d+\.?\d*)', resp.content.strip())
+            if match:
+                score = float(match.group(1))
+                return max(0.0, min(1.0, score))  # clamp
+        except Exception:
+            pass
+        return 0.5
 
     def _get_best_path(self, tree: list[dict]) -> list[dict]:
         """Get the highest-scoring path through the tree."""
@@ -673,14 +711,14 @@ Rate from 0.0 to 1.0 where 1.0 = extremely promising. Respond with ONLY a decima
 
     async def _synthesize_from_tree(self, query: str, path: list[dict]) -> str:
         thoughts = "\n".join(f"- {node['thought']}" for node in path)
-        prompt = f"""Based on the following reasoning path, provide a comprehensive and well-structured answer to the question.
+        prompt = f"""На основе следующего пути рассуждений дай всесторонний и хорошо структурированный ответ на вопрос.
 
-Question: {query}
+Вопрос: {query}
 
-Reasoning path (best thoughts at each depth):
+Путь рассуждений (лучшие мысли на каждом уровне):
 {thoughts}
 
-Synthesize these insights into a clear, complete answer. Be thorough but concise."""
+Синтезируй эти идеи в ясный и полный ответ. Будь тщательным, но лаконичным. Отвечай на языке вопроса."""
 
         req = LLMRequest(
             messages=[LLMMessage(role="user", content=prompt)],
@@ -694,12 +732,12 @@ Synthesize these insights into a clear, complete answer. Be thorough but concise
     # ── Vote helpers ──
 
     def _build_vote_prompt(self, question: str, candidates: list[str]) -> str:
-        parts = [f"Question: {question}\n\nHere are {len(candidates)} candidate answers:\n"]
+        parts = [f"Вопрос: {question}\n\nВот {len(candidates)} вариантов ответа:\n"]
         for i, c in enumerate(candidates):
-            parts.append(f"--- Candidate {i + 1} ---\n{c}\n")
+            parts.append(f"--- Вариант {i + 1} ---\n{c}\n")
         parts.append(
-            f"\nWhich candidate provides the best, most accurate, and most complete answer? "
-            f"Respond with ONLY the candidate number (1-{len(candidates)})."
+            f"\nКакой вариант даёт лучший, наиболее точный и полный ответ? "
+            f"Ответь ТОЛЬКО номером варианта (1-{len(candidates)})."
         )
         return "\n".join(parts)
 

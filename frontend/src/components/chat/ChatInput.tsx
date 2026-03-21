@@ -12,12 +12,12 @@ export function ChatInput() {
   const strategy = useChatStore((s) => s.settings.strategy);
 
   const STRATEGY_LABELS: Record<string, string> = {
-    none: 'No reasoning',
-    cot: 'Chain-of-Thought',
-    budget_forcing: 'Budget Forcing',
-    best_of_n: 'Best-of-N',
-    tree_of_thoughts: 'Tree of Thoughts',
-    auto: 'Auto (detect complexity)',
+    none: 'Без рассуждений',
+    cot: 'Цепочка мыслей',
+    budget_forcing: 'Углублённый анализ',
+    best_of_n: 'Лучший из N',
+    tree_of_thoughts: 'Дерево мыслей',
+    auto: 'Авто (по сложности)',
   };
 
   useEffect(() => {
@@ -50,7 +50,7 @@ export function ChatInput() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask anything..."
+            placeholder="Спросите что угодно..."
             rows={1}
             className="flex-1 resize-none bg-transparent px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
@@ -80,10 +80,10 @@ export function ChatInput() {
         </div>
         <div className="mt-1.5 flex items-center justify-between px-1">
           <span className="text-[10px] text-muted-foreground">
-            Strategy: {STRATEGY_LABELS[strategy] || strategy}
+            Стратегия: {STRATEGY_LABELS[strategy] || strategy}
           </span>
           <span className="text-[10px] text-muted-foreground">
-            Shift+Enter for new line
+            Shift+Enter — новая строка
           </span>
         </div>
       </div>

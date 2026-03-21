@@ -9,18 +9,21 @@ interface Props {
   strategy: string;
   isLive?: boolean;
   persona?: StrategySelectedEvent | null;
+  clarificationQuestion?: string | null;
+  onClarificationSubmit?: (answer: string) => void;
 }
 
 const STRATEGY_BADGE: Record<string, { label: string; color: string; icon: React.ComponentType<any> }> = {
-  cot: { label: 'Chain-of-Thought', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20', icon: Brain },
-  budget_forcing: { label: 'Budget Forcing', color: 'bg-purple-500/10 text-purple-400 border-purple-500/20', icon: Sparkles },
-  best_of_n: { label: 'Best-of-N', color: 'bg-green-500/10 text-green-400 border-green-500/20', icon: GitBranch },
-  tree_of_thoughts: { label: 'Tree of Thoughts', color: 'bg-orange-500/10 text-orange-400 border-orange-500/20', icon: TreePine },
-  none: { label: 'Passthrough', color: 'bg-gray-500/10 text-gray-400 border-gray-500/20', icon: Target },
+  cot: { label: 'Цепочка мыслей', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20', icon: Brain },
+  budget_forcing: { label: 'Углублённый анализ', color: 'bg-purple-500/10 text-purple-400 border-purple-500/20', icon: Sparkles },
+  best_of_n: { label: 'Лучший из N', color: 'bg-green-500/10 text-green-400 border-green-500/20', icon: GitBranch },
+  tree_of_thoughts: { label: 'Дерево мыслей', color: 'bg-orange-500/10 text-orange-400 border-orange-500/20', icon: TreePine },
+  none: { label: 'Прямой ответ', color: 'bg-gray-500/10 text-gray-400 border-gray-500/20', icon: Target },
 };
 
-export function ThinkingPanel({ steps, strategy, isLive, persona }: Props) {
+export function ThinkingPanel({ steps, strategy, isLive, persona, clarificationQuestion, onClarificationSubmit }: Props) {
   const [open, setOpen] = useState(isLive || false);
+  const [clarificationAnswer, setClarificationAnswer] = useState('');
 
   const badge = STRATEGY_BADGE[strategy] || STRATEGY_BADGE.cot;
   const BadgeIcon = badge.icon;
@@ -44,13 +47,13 @@ export function ThinkingPanel({ steps, strategy, isLive, persona }: Props) {
         </span>
 
         <span className="text-[10px] text-muted-foreground">
-          {steps.length} step{steps.length !== 1 ? 's' : ''}
+          {steps.length} {steps.length === 1 ? 'шаг' : steps.length < 5 ? 'шага' : 'шагов'}
         </span>
 
         {isLive && (
           <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground">
             <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
-            thinking...
+            думаю...
           </span>
         )}
       </button>
@@ -93,6 +96,44 @@ export function ThinkingPanel({ steps, strategy, isLive, persona }: Props) {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {clarificationQuestion && (
+        <div className="border-t border-border px-3 py-3">
+          <p className="text-xs font-medium text-foreground mb-2">{clarificationQuestion}</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={clarificationAnswer}
+              onChange={(e) => setClarificationAnswer(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && clarificationAnswer.trim() && onClarificationSubmit) {
+                  onClarificationSubmit(clarificationAnswer.trim());
+                  setClarificationAnswer('');
+                }
+              }}
+              placeholder="Ваш ответ..."
+              className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <button
+              onClick={() => {
+                if (clarificationAnswer.trim() && onClarificationSubmit) {
+                  onClarificationSubmit(clarificationAnswer.trim());
+                  setClarificationAnswer('');
+                }
+              }}
+              disabled={!clarificationAnswer.trim()}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                clarificationAnswer.trim()
+                  ? 'bg-foreground text-background hover:bg-foreground/90'
+                  : 'bg-muted text-muted-foreground cursor-not-allowed',
+              )}
+            >
+              Ответить
+            </button>
+          </div>
         </div>
       )}
     </div>

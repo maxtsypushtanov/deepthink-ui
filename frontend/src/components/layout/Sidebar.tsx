@@ -60,7 +60,7 @@ export function Sidebar() {
             )}
           >
             <Plus className="h-4 w-4 shrink-0" />
-            {!collapsed && <span>New Chat</span>}
+            {!collapsed && <span>Новый чат</span>}
           </button>
         </div>
 

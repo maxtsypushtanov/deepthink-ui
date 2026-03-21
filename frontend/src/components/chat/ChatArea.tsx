@@ -35,7 +35,7 @@ export function ChatArea() {
               </div>
               <h2 className="text-lg font-semibold">DeepThink UI</h2>
               <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                Any model gains reasoning superpowers. Choose a strategy and start chatting.
+                Любая модель получает суперспособности к рассуждению. Выберите стратегию и начните диалог.
               </p>
             </div>
           </div>

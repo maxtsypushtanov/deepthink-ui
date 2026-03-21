@@ -17,6 +17,7 @@ interface StreamingState {
   strategyUsed: string | null;
   isThinking: boolean;
   currentPersona: StrategySelectedEvent | null;
+  clarificationQuestion: string | null;
 }
 
 interface ChatStore {
@@ -34,6 +35,7 @@ interface ChatStore {
   createConversation: () => Promise<string>;
   deleteConversation: (id: string) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
+  sendClarification: (answer: string) => Promise<void>;
   stopStreaming: () => void;
   updateSettings: (partial: Partial<ChatSettings>) => void;
   clearError: () => void;
@@ -64,6 +66,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     strategyUsed: null,
     isThinking: false,
     currentPersona: null,
+    clarificationQuestion: null,
   },
   settings: DEFAULT_SETTINGS,
   error: null,
@@ -136,6 +139,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         strategyUsed: null,
         isThinking: false,
         currentPersona: null,
+        clarificationQuestion: null,
       },
       error: null,
     }));
@@ -246,10 +250,174 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 strategyUsed: null,
                 isThinking: false,
                 currentPersona: null,
+                clarificationQuestion: null,
               },
             }));
             break;
           }
+
+          case 'clarification_needed':
+            set((s) => ({
+              streaming: {
+                ...s.streaming,
+                isStreaming: false,
+                isThinking: false,
+                clarificationQuestion: data.question,
+              },
+            }));
+            break;
+
+          case 'error':
+            set({ error: data.error, streaming: { ...get().streaming, isStreaming: false } });
+            break;
+        }
+      }
+    } catch (e: any) {
+      if (e.name !== 'AbortError') {
+        set({ error: e.message });
+      }
+    } finally {
+      set((s) => ({
+        streaming: { ...s.streaming, isStreaming: false },
+      }));
+    }
+  },
+
+  sendClarification: async (answer: string) => {
+    const { settings, activeConversationId, streaming } = get();
+    const clarificationContext = `Пользователь ответил на уточняющий вопрос: "${streaming.clarificationQuestion}" → "${answer}"`;
+
+    set((s) => ({
+      streaming: {
+        ...s.streaming,
+        isStreaming: true,
+        isThinking: true,
+        clarificationQuestion: null,
+      },
+    }));
+
+    abortController = new AbortController();
+
+    try {
+      const body = {
+        conversation_id: activeConversationId,
+        message: answer,
+        model: settings.model,
+        provider: settings.provider,
+        reasoning_strategy: settings.strategy,
+        temperature: settings.temperature,
+        max_tokens: settings.maxTokens,
+        budget_rounds: settings.budgetRounds,
+        best_of_n: settings.bestOfN,
+        tree_breadth: settings.treeBreadth,
+        tree_depth: settings.treeDepth,
+        clarification_context: clarificationContext,
+      };
+
+      for await (const { event, data } of streamChat(body)) {
+        if (abortController?.signal.aborted) break;
+
+        switch (event) {
+          case 'conversation':
+            if (data.conversation_id) {
+              set({ activeConversationId: data.conversation_id });
+              get().loadConversations();
+            }
+            break;
+
+          case 'strategy_selected':
+            set((s) => ({
+              streaming: {
+                ...s.streaming,
+                strategyUsed: data.strategy,
+                currentPersona: data as StrategySelectedEvent,
+              },
+            }));
+            break;
+
+          case 'thinking_start':
+            set((s) => ({
+              streaming: { ...s.streaming, isThinking: true, strategyUsed: data.strategy },
+            }));
+            break;
+
+          case 'thinking_step':
+            set((s) => ({
+              streaming: {
+                ...s.streaming,
+                thinkingSteps: [
+                  ...s.streaming.thinkingSteps,
+                  {
+                    step_number: data.step,
+                    strategy: data.type || '',
+                    content: data.label || '',
+                    duration_ms: 0,
+                    metadata: data,
+                  },
+                ],
+              },
+            }));
+            break;
+
+          case 'content_delta':
+            set((s) => ({
+              streaming: {
+                ...s.streaming,
+                currentContent: s.streaming.currentContent + data.content,
+              },
+            }));
+            break;
+
+          case 'thinking_end':
+            set((s) => ({
+              streaming: {
+                ...s.streaming,
+                isThinking: false,
+                thinkingSteps: data.steps?.length
+                  ? data.steps
+                  : s.streaming.thinkingSteps,
+              },
+            }));
+            break;
+
+          case 'done': {
+            const { streaming } = get();
+            const assistantMsg: Message = {
+              id: generateId(),
+              conversation_id: get().activeConversationId || '',
+              role: 'assistant',
+              content: streaming.currentContent,
+              model: settings.model,
+              provider: settings.provider,
+              reasoning_strategy: streaming.strategyUsed || settings.strategy,
+              reasoning_trace: JSON.stringify(streaming.thinkingSteps),
+              created_at: new Date().toISOString(),
+            };
+            set((s) => ({
+              messages: [...s.messages, assistantMsg],
+              streaming: {
+                isStreaming: false,
+                currentContent: '',
+                thinkingSteps: [],
+                strategyUsed: null,
+                isThinking: false,
+                currentPersona: null,
+                clarificationQuestion: null,
+              },
+            }));
+            break;
+          }
+
+          case 'clarification_needed':
+            set((s) => ({
+              streaming: {
+                ...s.streaming,
+                isStreaming: false,
+                isThinking: false,
+                clarificationQuestion: data.question,
+              },
+            }));
+            break;
 
           case 'error':
             set({ error: data.error, streaming: { ...get().streaming, isStreaming: false } });

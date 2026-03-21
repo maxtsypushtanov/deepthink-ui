@@ -6,12 +6,12 @@ import { cn } from '@/lib/utils';
 import { ChevronDown, Brain, Sparkles, GitBranch, Target, TreePine, Zap } from 'lucide-react';
 
 const STRATEGIES: { value: ReasoningStrategy; label: string; icon: React.ComponentType<any>; color: string }[] = [
-  { value: 'auto', label: 'Auto', icon: Zap, color: 'text-yellow-400' },
-  { value: 'none', label: 'None', icon: Target, color: 'text-muted-foreground' },
-  { value: 'cot', label: 'CoT', icon: Brain, color: 'text-blue-400' },
-  { value: 'budget_forcing', label: 'Budget', icon: Sparkles, color: 'text-purple-400' },
+  { value: 'auto', label: 'Авто', icon: Zap, color: 'text-yellow-400' },
+  { value: 'none', label: 'Без', icon: Target, color: 'text-muted-foreground' },
+  { value: 'cot', label: 'Цепочка', icon: Brain, color: 'text-blue-400' },
+  { value: 'budget_forcing', label: 'Бюджет', icon: Sparkles, color: 'text-purple-400' },
   { value: 'best_of_n', label: 'Best-of-N', icon: GitBranch, color: 'text-green-400' },
-  { value: 'tree_of_thoughts', label: 'Tree', icon: TreePine, color: 'text-orange-400' },
+  { value: 'tree_of_thoughts', label: 'Дерево', icon: TreePine, color: 'text-orange-400' },
 ];
 
 export function ModelSelector() {
@@ -64,7 +64,7 @@ export function ModelSelector() {
               ))}
               {models.length === 0 && (
                 <p className="px-3 py-2 text-sm text-muted-foreground">
-                  Configure API key in Settings first
+                  Сначала настройте API-ключ в Настройках
                 </p>
               )}
             </div>
