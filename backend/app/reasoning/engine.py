@@ -12,6 +12,15 @@ from typing import AsyncIterator
 from app.providers.base import BaseLLMProvider, LLMMessage, LLMRequest, LLMResponse, LLMChunk
 
 
+# ── Valid Domains ──
+
+VALID_DOMAINS = [
+    "software_engineering", "mathematics", "medicine", "law",
+    "finance", "science", "creative_writing", "business",
+    "philosophy", "general",
+]
+
+
 class ReasoningStrategy(str, Enum):
     NONE = "none"
     COT = "cot"
@@ -41,6 +50,20 @@ class ReasoningResult:
     total_duration_ms: int = 0
 
 
+@dataclass
+class SessionContext:
+    """Tracks domain and expertise across conversation turns."""
+    detected_domains: list[str] = field(default_factory=list)
+    dominant_domain: str = "general"
+    user_expertise_signals: list[str] = field(default_factory=list)
+    conversation_turn: int = 0
+
+    def update(self, domain: str) -> None:
+        self.detected_domains.append(domain)
+        self.dominant_domain = max(set(self.detected_domains), key=self.detected_domains.count)
+        self.conversation_turn += 1
+
+
 # ── CoT Injection Prompts ──
 
 COT_SYSTEM_PROMPT = """You are a world-class reasoning assistant. For every question, you MUST think step by step before giving your final answer.
@@ -56,6 +79,13 @@ Always show your reasoning process explicitly. Start your thinking with <thinkin
 
 BUDGET_FORCING_CONTINUATION = "\n\nWait, let me reconsider and think more carefully about this..."
 
+DOMAIN_CLASSIFIER_PROMPT = """Classify the following message into exactly one domain.
+Valid domains: software_engineering, mathematics, medicine, law, finance, science, creative_writing, business, philosophy, general
+
+Message: {message}
+
+Respond with ONLY the domain name, nothing else."""
+
 COMPLEXITY_CLASSIFIER_PROMPT = """Rate the complexity of the following question on a scale of 1-5:
 1 = Simple factual question (e.g., "What is 2+2?")
 2 = Basic explanation needed (e.g., "What is photosynthesis?")
@@ -66,6 +96,83 @@ COMPLEXITY_CLASSIFIER_PROMPT = """Rate the complexity of the following question 
 Question: {question}
 
 Respond with ONLY a single digit (1-5), nothing else."""
+
+
+# ── Persona Builder ──
+
+PERSONA_TEMPLATE = """You are a world-class expert in {domain}.
+Reasoning style: {reasoning_style}.
+User's goal: {intent_description}.
+Conversation turn: {turn}. Expertise level: {expertise_level}.
+Adapt depth, terminology and examples accordingly.
+
+Structure your response clearly. When reasoning, start your thinking with <thinking> and end with </thinking>, then provide your final answer after."""
+
+STRATEGY_PERSONA_MAP = {
+    "none": {"reasoning_style": "Direct and concise", "intent_description": "Get a straightforward answer"},
+    "cot": {"reasoning_style": "Step-by-step analytical thinking", "intent_description": "Understand the reasoning process"},
+    "budget_forcing": {"reasoning_style": "Deep iterative reflection with self-correction", "intent_description": "Explore the problem thoroughly with multiple passes"},
+    "best_of_n": {"reasoning_style": "Multi-perspective analysis with consensus", "intent_description": "Compare multiple approaches and find the best answer"},
+    "tree_of_thoughts": {"reasoning_style": "Systematic exploration of reasoning branches", "intent_description": "Map out all possible approaches and evaluate each"},
+    "auto": {"reasoning_style": "Adaptive based on complexity", "intent_description": "Solve the problem optimally"},
+}
+
+DOMAIN_LABELS = {
+    "software_engineering": "software architect",
+    "mathematics": "mathematician",
+    "medicine": "medical researcher",
+    "law": "legal analyst",
+    "finance": "financial analyst",
+    "science": "research scientist",
+    "creative_writing": "creative writing expert",
+    "business": "business strategist",
+    "philosophy": "philosopher",
+    "general": "reasoning assistant",
+}
+
+
+class PersonaBuilder:
+    """Builds dynamic system prompts based on domain, strategy, and session context."""
+
+    @staticmethod
+    def build(domain: str, strategy: str, session_context: SessionContext | None = None) -> str:
+        turn = session_context.conversation_turn if session_context else 0
+
+        # Infer expertise level
+        if session_context and session_context.user_expertise_signals:
+            expertise_level = "expert"
+        elif turn <= 1:
+            expertise_level = "beginner"
+        elif turn <= 5:
+            expertise_level = "intermediate"
+        else:
+            expertise_level = "expert"
+
+        persona_map = STRATEGY_PERSONA_MAP.get(strategy, STRATEGY_PERSONA_MAP["auto"])
+
+        return PERSONA_TEMPLATE.format(
+            domain=DOMAIN_LABELS.get(domain, "reasoning assistant"),
+            reasoning_style=persona_map["reasoning_style"],
+            intent_description=persona_map["intent_description"],
+            turn=turn,
+            expertise_level=expertise_level,
+        )
+
+    @staticmethod
+    def get_label(strategy: str) -> str:
+        labels = {
+            "none": "Direct answer",
+            "cot": "Step-by-step reasoning",
+            "budget_forcing": "Deep iterative analysis",
+            "best_of_n": "Multi-perspective analysis",
+            "tree_of_thoughts": "Systematic tree exploration",
+            "auto": "Adaptive reasoning",
+        }
+        return labels.get(strategy, "Reasoning")
+
+    @staticmethod
+    def get_preview(domain: str) -> str:
+        return f"World-class {DOMAIN_LABELS.get(domain, 'reasoning assistant')}"
 
 
 class ReasoningEngine:
@@ -86,14 +193,41 @@ class ReasoningEngine:
         best_of_n: int = 3,
         tree_breadth: int = 3,
         tree_depth: int = 2,
+        session_context: SessionContext | None = None,
     ) -> AsyncIterator[dict]:
         """
         Run reasoning and yield SSE-compatible events.
-        Events: thinking_start, thinking_step, thinking_end, content_delta, done
+        Events: strategy_selected, thinking_start, thinking_step, thinking_end, content_delta, done
         """
+        # Detect domain (and optionally classify complexity) in parallel
         if strategy == ReasoningStrategy.AUTO:
-            strategy = await self._classify_complexity(messages)
-            yield {"event": "strategy_selected", "data": {"strategy": strategy.value}}
+            classified_strategy, domain = await asyncio.gather(
+                self._classify_complexity(messages),
+                self._detect_domain(messages),
+            )
+            strategy = classified_strategy
+        else:
+            domain = await self._detect_domain(messages)
+
+        # Update session context if provided
+        if session_context:
+            session_context.update(domain)
+
+        # Build dynamic persona
+        persona = PersonaBuilder.build(domain, strategy.value, session_context)
+        label = PersonaBuilder.get_label(strategy.value)
+        preview = PersonaBuilder.get_preview(domain)
+
+        yield {
+            "event": "strategy_selected",
+            "data": {
+                "strategy": strategy.value,
+                "intent": strategy.value,
+                "domain": domain,
+                "label": label,
+                "persona_preview": preview,
+            },
+        }
 
         yield {"event": "thinking_start", "data": {"strategy": strategy.value}}
 
@@ -101,23 +235,23 @@ class ReasoningEngine:
         steps: list[ThinkingStep] = []
 
         if strategy == ReasoningStrategy.NONE:
-            async for chunk in self._run_passthrough(messages):
+            async for chunk in self._run_passthrough(messages, persona):
                 yield chunk
 
         elif strategy == ReasoningStrategy.COT:
-            async for chunk in self._run_cot(messages, steps):
+            async for chunk in self._run_cot(messages, steps, persona):
                 yield chunk
 
         elif strategy == ReasoningStrategy.BUDGET_FORCING:
-            async for chunk in self._run_budget_forcing(messages, steps, budget_rounds):
+            async for chunk in self._run_budget_forcing(messages, steps, budget_rounds, persona):
                 yield chunk
 
         elif strategy == ReasoningStrategy.BEST_OF_N:
-            async for chunk in self._run_best_of_n(messages, steps, best_of_n):
+            async for chunk in self._run_best_of_n(messages, steps, best_of_n, persona):
                 yield chunk
 
         elif strategy == ReasoningStrategy.TREE_OF_THOUGHTS:
-            async for chunk in self._run_tree_of_thoughts(messages, steps, tree_breadth, tree_depth):
+            async for chunk in self._run_tree_of_thoughts(messages, steps, tree_breadth, tree_depth, persona):
                 yield chunk
 
         elapsed = int((time.monotonic() - start) * 1000)
@@ -144,16 +278,17 @@ class ReasoningEngine:
 
     # ── Strategy: Passthrough (no reasoning) ──
 
-    async def _run_passthrough(self, messages: list[LLMMessage]) -> AsyncIterator[dict]:
-        req = LLMRequest(messages=messages, model=self.model)
+    async def _run_passthrough(self, messages: list[LLMMessage], persona: str) -> AsyncIterator[dict]:
+        persona_messages = [LLMMessage(role="system", content=persona)] + messages
+        req = LLMRequest(messages=persona_messages, model=self.model)
         async for chunk in self.provider.stream(req):
             if chunk.content:
                 yield {"event": "content_delta", "data": {"content": chunk.content}}
 
     # ── Strategy: Chain-of-Thought Injection ──
 
-    async def _run_cot(self, messages: list[LLMMessage], steps: list[ThinkingStep]) -> AsyncIterator[dict]:
-        cot_messages = [LLMMessage(role="system", content=COT_SYSTEM_PROMPT)] + messages
+    async def _run_cot(self, messages: list[LLMMessage], steps: list[ThinkingStep], persona: str) -> AsyncIterator[dict]:
+        cot_messages = [LLMMessage(role="system", content=persona)] + messages
         req = LLMRequest(messages=cot_messages, model=self.model, temperature=0.3)
 
         step_start = time.monotonic()
@@ -186,9 +321,9 @@ class ReasoningEngine:
     # ── Strategy: Budget Forcing (s1-approach) ──
 
     async def _run_budget_forcing(
-        self, messages: list[LLMMessage], steps: list[ThinkingStep], rounds: int
+        self, messages: list[LLMMessage], steps: list[ThinkingStep], rounds: int, persona: str
     ) -> AsyncIterator[dict]:
-        cot_messages = [LLMMessage(role="system", content=COT_SYSTEM_PROMPT)] + messages
+        cot_messages = [LLMMessage(role="system", content=persona)] + messages
         accumulated = ""
 
         for round_num in range(rounds):
@@ -237,7 +372,7 @@ class ReasoningEngine:
     # ── Strategy: Best-of-N ──
 
     async def _run_best_of_n(
-        self, messages: list[LLMMessage], steps: list[ThinkingStep], n: int
+        self, messages: list[LLMMessage], steps: list[ThinkingStep], n: int, persona: str
     ) -> AsyncIterator[dict]:
         yield {
             "event": "thinking_step",
@@ -245,7 +380,7 @@ class ReasoningEngine:
         }
 
         # Generate N responses in parallel
-        cot_messages = [LLMMessage(role="system", content=COT_SYSTEM_PROMPT)] + messages
+        cot_messages = [LLMMessage(role="system", content=persona)] + messages
 
         async def generate_candidate(idx: int) -> tuple[int, str]:
             req = LLMRequest(
@@ -317,7 +452,7 @@ class ReasoningEngine:
 
     async def _run_tree_of_thoughts(
         self, messages: list[LLMMessage], steps: list[ThinkingStep],
-        breadth: int, depth: int,
+        breadth: int, depth: int, persona: str = "",
     ) -> AsyncIterator[dict]:
         user_query = messages[-1].content
 
@@ -415,6 +550,29 @@ class ReasoningEngine:
                 ],
             },
         ))
+
+    # ── Domain Detection ──
+
+    async def _detect_domain(self, messages: list[LLMMessage]) -> str:
+        """Classify the user's message into a knowledge domain."""
+        user_msg = messages[-1].content if messages else ""
+        prompt = DOMAIN_CLASSIFIER_PROMPT.format(message=user_msg)
+
+        req = LLMRequest(
+            messages=[LLMMessage(role="user", content=prompt)],
+            model=self.model,
+            temperature=0.0,
+            max_tokens=10,
+        )
+
+        try:
+            resp = await self.provider.complete(req)
+            domain = resp.content.strip().lower().replace(" ", "_")
+            if domain in VALID_DOMAINS:
+                return domain
+        except Exception:
+            pass
+        return "general"
 
     # ── Auto-classification ──
 
