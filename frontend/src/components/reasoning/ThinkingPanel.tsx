@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import type { ThinkingStep } from '@/types';
+import type { ThinkingStep, StrategySelectedEvent } from '@/types';
 import { cn, formatDuration } from '@/lib/utils';
 import { ChevronDown, ChevronRight, Brain, Clock, GitBranch, TreePine, Sparkles, Target } from 'lucide-react';
+import { PersonaCard } from './PersonaCard';
 
 interface Props {
   steps: ThinkingStep[];
   strategy: string;
   isLive?: boolean;
+  persona?: StrategySelectedEvent | null;
 }
 
 const STRATEGY_BADGE: Record<string, { label: string; color: string; icon: React.ComponentType<any> }> = {
@@ -17,7 +19,7 @@ const STRATEGY_BADGE: Record<string, { label: string; color: string; icon: React
   none: { label: 'Passthrough', color: 'bg-gray-500/10 text-gray-400 border-gray-500/20', icon: Target },
 };
 
-export function ThinkingPanel({ steps, strategy, isLive }: Props) {
+export function ThinkingPanel({ steps, strategy, isLive, persona }: Props) {
   const [open, setOpen] = useState(isLive || false);
 
   const badge = STRATEGY_BADGE[strategy] || STRATEGY_BADGE.cot;
@@ -56,6 +58,7 @@ export function ThinkingPanel({ steps, strategy, isLive }: Props) {
       {/* Steps */}
       {open && (
         <div className="border-t border-border px-3 py-2">
+          {persona && <PersonaCard persona={persona} />}
           {steps.map((step, i) => (
             <div
               key={i}

@@ -51,6 +51,7 @@ export function ChatArea() {
                 isThinking={streaming.isThinking}
                 thinkingSteps={streaming.thinkingSteps}
                 strategy={streaming.strategyUsed}
+                persona={streaming.currentPersona}
               />
             )}
 

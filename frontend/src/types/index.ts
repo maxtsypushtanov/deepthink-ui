@@ -57,6 +57,14 @@ export interface TreeNode {
   thought?: string;
 }
 
+export interface StrategySelectedEvent {
+  strategy: string;
+  intent: string;
+  domain: string;
+  label: string;
+  persona_preview: string;
+}
+
 export type ThemeMode = 'dark' | 'light';
 
 export interface ChatSettings {

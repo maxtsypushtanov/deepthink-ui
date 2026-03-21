@@ -1,6 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { ThinkingStep } from '@/types';
+import type { ThinkingStep, StrategySelectedEvent } from '@/types';
 import { ThinkingPanel } from '@/components/reasoning/ThinkingPanel';
 import { Bot } from 'lucide-react';
 
@@ -9,9 +9,10 @@ interface Props {
   isThinking: boolean;
   thinkingSteps: ThinkingStep[];
   strategy: string | null;
+  persona?: StrategySelectedEvent | null;
 }
 
-export function StreamingMessage({ content, isThinking, thinkingSteps, strategy }: Props) {
+export function StreamingMessage({ content, isThinking, thinkingSteps, strategy, persona }: Props) {
   return (
     <div className="animate-fade-in mb-6">
       {/* Avatar */}
@@ -29,7 +30,7 @@ export function StreamingMessage({ content, isThinking, thinkingSteps, strategy 
 
       {/* Thinking indicator */}
       {isThinking && (
-        <ThinkingPanel steps={thinkingSteps} strategy={strategy || ''} isLive />
+        <ThinkingPanel steps={thinkingSteps} strategy={strategy || ''} isLive persona={persona} />
       )}
 
       {/* Content */}

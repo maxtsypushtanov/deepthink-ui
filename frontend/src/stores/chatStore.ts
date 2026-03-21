@@ -5,6 +5,7 @@ import type {
   ChatSettings,
   ThinkingStep,
   ReasoningStrategy,
+  StrategySelectedEvent,
 } from '@/types';
 import { api, streamChat } from '@/lib/api';
 import { generateId } from '@/lib/utils';
@@ -15,6 +16,7 @@ interface StreamingState {
   thinkingSteps: ThinkingStep[];
   strategyUsed: string | null;
   isThinking: boolean;
+  currentPersona: StrategySelectedEvent | null;
 }
 
 interface ChatStore {
@@ -61,6 +63,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     thinkingSteps: [],
     strategyUsed: null,
     isThinking: false,
+    currentPersona: null,
   },
   settings: DEFAULT_SETTINGS,
   error: null,
@@ -132,6 +135,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         thinkingSteps: [],
         strategyUsed: null,
         isThinking: false,
+        currentPersona: null,
       },
       error: null,
     }));
@@ -167,7 +171,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
           case 'strategy_selected':
             set((s) => ({
-              streaming: { ...s.streaming, strategyUsed: data.strategy },
+              streaming: {
+                ...s.streaming,
+                strategyUsed: data.strategy,
+                currentPersona: data as StrategySelectedEvent,
+              },
             }));
             break;
 
@@ -237,6 +245,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 thinkingSteps: [],
                 strategyUsed: null,
                 isThinking: false,
+                currentPersona: null,
               },
             }));
             break;
