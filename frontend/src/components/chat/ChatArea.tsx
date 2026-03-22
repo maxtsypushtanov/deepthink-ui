@@ -37,7 +37,7 @@ export function ChatArea() {
               <ChatMessage key={msg.id} message={msg} />
             ))}
 
-            {streaming.isStreaming && (
+            {streaming.isStreaming && (streaming.currentContent || streaming.isThinking || streaming.thinkingSteps.length > 0) && (
               <StreamingMessage
                 content={streaming.currentContent}
                 isThinking={streaming.isThinking}
