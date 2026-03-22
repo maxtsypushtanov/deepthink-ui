@@ -34,6 +34,37 @@ export const api = {
   deleteConversation: (cid: string) =>
     fetchJSON<any>(`/api/conversations/${cid}`, { method: 'DELETE' }),
 
+  moveConversation: (cid: string, folderId: string | null) =>
+    fetchJSON<any>(`/api/conversations/${cid}/folder`, {
+      method: 'PUT',
+      body: JSON.stringify({ folder_id: folderId }),
+    }),
+
+  // ── Folders ──
+
+  listFolders: () => fetchJSON<any[]>('/api/folders'),
+
+  createFolder: (name: string, parentFolderId?: string | null) =>
+    fetchJSON<any>('/api/folders', {
+      method: 'POST',
+      body: JSON.stringify({ name, parent_folder_id: parentFolderId ?? null }),
+    }),
+
+  renameFolder: (fid: string, name: string) =>
+    fetchJSON<any>(`/api/folders/${fid}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    }),
+
+  deleteFolder: (fid: string) =>
+    fetchJSON<any>(`/api/folders/${fid}`, { method: 'DELETE' }),
+
+  moveFolder: (fid: string, parentFolderId: string | null) =>
+    fetchJSON<any>(`/api/folders/${fid}/move`, {
+      method: 'PUT',
+      body: JSON.stringify({ parent_folder_id: parentFolderId }),
+    }),
+
   // ── Settings ──
 
   getProviders: () => fetchJSON<any[]>('/api/settings/providers'),

@@ -1,11 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useChatStore } from '@/stores/chatStore';
 import { useThemeStore } from '@/stores/themeStore';
-import { cn, formatTimestamp } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import {
   Plus,
-  MessageSquare,
-  Trash2,
   Settings,
   Moon,
   Sun,
@@ -14,17 +12,20 @@ import {
   Zap,
 } from 'lucide-react';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
+import { ChatExplorer } from '@/components/sidebar/ChatExplorer';
 
 export function Sidebar() {
-  const conversations = useChatStore((s) => s.conversations);
   const activeId = useChatStore((s) => s.activeConversationId);
-  const selectConversation = useChatStore((s) => s.selectConversation);
   const createConversation = useChatStore((s) => s.createConversation);
-  const deleteConversation = useChatStore((s) => s.deleteConversation);
+  const loadFolders = useChatStore((s) => s.loadFolders);
   const theme = useThemeStore((s) => s.mode);
   const toggleTheme = useThemeStore((s) => s.toggle);
   const [collapsed, setCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    loadFolders();
+  }, [loadFolders]);
 
   return (
     <>
@@ -64,38 +65,8 @@ export function Sidebar() {
           </button>
         </div>
 
-        {/* Conversation list */}
-        <div className="flex-1 overflow-y-auto px-2">
-          {conversations.map((conv) => (
-            <div
-              key={conv.id}
-              className={cn(
-                'group relative mb-0.5 flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
-                activeId === conv.id
-                  ? 'bg-accent text-foreground'
-                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-                collapsed && 'justify-center px-0',
-              )}
-              onClick={() => selectConversation(conv.id)}
-            >
-              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-              {!collapsed && (
-                <>
-                  <span className="truncate">{conv.title}</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteConversation(conv.id);
-                    }}
-                    className="ml-auto hidden rounded p-0.5 text-muted-foreground hover:text-destructive group-hover:block"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
-        </div>
+        {/* Chat Explorer (folders + conversations tree) */}
+        <ChatExplorer collapsed={collapsed} />
 
         {/* Bottom actions */}
         <div className="flex items-center justify-between border-t border-border px-3 py-2">

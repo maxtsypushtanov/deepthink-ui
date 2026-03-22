@@ -29,6 +29,23 @@ class ConversationUpdate(BaseModel):
     title: str
 
 
+class ConversationMoveRequest(BaseModel):
+    folder_id: str | None = None
+
+
+class FolderCreate(BaseModel):
+    name: str
+    parent_folder_id: str | None = None
+
+
+class FolderUpdate(BaseModel):
+    name: str
+
+
+class FolderMoveRequest(BaseModel):
+    parent_folder_id: str | None = None
+
+
 class ProviderSettingsRequest(BaseModel):
     provider: str
     api_key: str
@@ -39,6 +56,7 @@ class ProviderSettingsRequest(BaseModel):
 class ConversationResponse(BaseModel):
     id: str
     title: str
+    folder_id: str | None = None
     created_at: str
     updated_at: str
 

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type {
   Conversation,
+  Folder,
   Message,
   ChatSettings,
   ThinkingStep,
@@ -24,6 +25,7 @@ interface StreamingState {
 interface ChatStore {
   // State
   conversations: Conversation[];
+  folders: Folder[];
   activeConversationId: string | null;
   messages: Message[];
   streaming: StreamingState;
@@ -40,6 +42,13 @@ interface ChatStore {
   stopStreaming: () => void;
   updateSettings: (partial: Partial<ChatSettings>) => void;
   clearError: () => void;
+  // Folder actions
+  loadFolders: () => Promise<void>;
+  createFolder: (name: string, parentFolderId?: string | null) => Promise<void>;
+  renameFolder: (id: string, name: string) => Promise<void>;
+  deleteFolder: (id: string) => Promise<void>;
+  moveConversation: (conversationId: string, folderId: string | null) => Promise<void>;
+  moveFolder: (folderId: string, parentFolderId: string | null) => Promise<void>;
 }
 
 const DEFAULT_SETTINGS: ChatSettings = {
@@ -58,6 +67,7 @@ let abortController: AbortController | null = null;
 
 export const useChatStore = create<ChatStore>((set, get) => ({
   conversations: [],
+  folders: [],
   activeConversationId: null,
   messages: [],
   streaming: {
@@ -474,4 +484,75 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  // ── Folder actions ──
+
+  loadFolders: async () => {
+    try {
+      const folders = await api.listFolders();
+      set({ folders });
+    } catch (e: any) {
+      set({ error: e.message });
+    }
+  },
+
+  createFolder: async (name, parentFolderId) => {
+    try {
+      const folder = await api.createFolder(name, parentFolderId);
+      set((s) => ({ folders: [...s.folders, folder] }));
+    } catch (e: any) {
+      set({ error: e.message });
+    }
+  },
+
+  renameFolder: async (id, name) => {
+    try {
+      await api.renameFolder(id, name);
+      set((s) => ({
+        folders: s.folders.map((f) => (f.id === id ? { ...f, name } : f)),
+      }));
+    } catch (e: any) {
+      set({ error: e.message });
+    }
+  },
+
+  deleteFolder: async (id) => {
+    try {
+      await api.deleteFolder(id);
+      // Reload both folders and conversations since children are reparented
+      const [folders, conversations] = await Promise.all([
+        api.listFolders(),
+        api.listConversations(),
+      ]);
+      set({ folders, conversations });
+    } catch (e: any) {
+      set({ error: e.message });
+    }
+  },
+
+  moveConversation: async (conversationId, folderId) => {
+    try {
+      await api.moveConversation(conversationId, folderId);
+      set((s) => ({
+        conversations: s.conversations.map((c) =>
+          c.id === conversationId ? { ...c, folder_id: folderId } : c
+        ),
+      }));
+    } catch (e: any) {
+      set({ error: e.message });
+    }
+  },
+
+  moveFolder: async (folderId, parentFolderId) => {
+    try {
+      await api.moveFolder(folderId, parentFolderId);
+      set((s) => ({
+        folders: s.folders.map((f) =>
+          f.id === folderId ? { ...f, parent_folder_id: parentFolderId } : f
+        ),
+      }));
+    } catch (e: any) {
+      set({ error: e.message });
+    }
+  },
 }));

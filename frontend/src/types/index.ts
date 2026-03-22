@@ -22,6 +22,15 @@ export interface Message {
 export interface Conversation {
   id: string;
   title: string;
+  folder_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  parent_folder_id: string | null;
   created_at: string;
   updated_at: string;
 }
