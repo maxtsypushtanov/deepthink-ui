@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import type { ThinkingStep, StrategySelectedEvent } from '@/types';
+import { useState, useMemo } from 'react';
+import type { ThinkingStep, StrategySelectedEvent, TreeNode } from '@/types';
 import { cn, formatDuration } from '@/lib/utils';
-import { ChevronDown, ChevronRight, Brain, Clock, GitBranch, TreePine, Sparkles, Target } from 'lucide-react';
+import { ChevronDown, ChevronRight, Brain, Clock, GitBranch, TreePine, Sparkles, Target, List, Network } from 'lucide-react';
 import { PersonaCard } from './PersonaCard';
+import { ReasoningTree } from './ReasoningTree';
 
 interface Props {
   steps: ThinkingStep[];
@@ -25,6 +26,20 @@ export function ThinkingPanel({ steps, strategy, isLive, persona, clarificationQ
   const [open, setOpen] = useState(isLive || false);
   const [expandedStep, setExpandedStep] = useState<number | null>(null);
   const [clarificationAnswer, setClarificationAnswer] = useState('');
+  const [viewMode, setViewMode] = useState<'list' | 'tree'>('list');
+
+  const treeNodes = useMemo<TreeNode[]>(() => {
+    if (strategy !== 'tree_of_thoughts') return [];
+    return steps
+      .filter((s) => s.metadata?.node_id)
+      .map((s) => ({
+        id: String(s.metadata.node_id),
+        level: Number(s.metadata.level ?? 0),
+        score: Number(s.metadata.score ?? 0.5),
+        parent: s.metadata.parent ? String(s.metadata.parent) : null,
+        thought: s.content,
+      }));
+  }, [steps, strategy]);
 
   const badge = STRATEGY_BADGE[strategy] || STRATEGY_BADGE.cot;
   const BadgeIcon = badge.icon;
@@ -51,8 +66,27 @@ export function ThinkingPanel({ steps, strategy, isLive, persona, clarificationQ
           {steps.length} {steps.length === 1 ? 'шаг' : steps.length < 5 ? 'шага' : 'шагов'}
         </span>
 
+        {strategy === 'tree_of_thoughts' && treeNodes.length > 0 && (
+          <span className="ml-auto flex items-center gap-0.5 mr-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); setViewMode('list'); }}
+              className={cn('rounded p-0.5', viewMode === 'list' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}
+              title="Список"
+            >
+              <List className="h-3 w-3" />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); setViewMode('tree'); }}
+              className={cn('rounded p-0.5', viewMode === 'tree' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}
+              title="Дерево"
+            >
+              <Network className="h-3 w-3" />
+            </button>
+          </span>
+        )}
+
         {isLive && (
-          <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground">
+          <span className={cn('flex items-center gap-1 text-[10px] text-muted-foreground', strategy !== 'tree_of_thoughts' && 'ml-auto')}>
             <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
             думаю...
           </span>
@@ -63,7 +97,9 @@ export function ThinkingPanel({ steps, strategy, isLive, persona, clarificationQ
       {open && (
         <div className="border-t border-border px-3 py-2">
           {persona && <PersonaCard persona={persona} />}
-          {steps.map((step, i) => {
+          {viewMode === 'tree' && treeNodes.length > 0 ? (
+            <ReasoningTree nodes={treeNodes} />
+          ) : steps.map((step, i) => {
             const isExpanded = expandedStep === i;
             return (
               <div
