@@ -84,12 +84,13 @@ class BaseLLMProvider(ABC):
             resp.raise_for_status()
             data = resp.json()
 
-        choices = data.get("choices", [])
-        if not choices:
+        choices = data.get("choices")
+        if not choices or len(choices) == 0:
             raise ValueError(f"Provider returned empty choices. Response: {data}")
         choice = choices[0]
+        message = choice.get("message") or {}
         return LLMResponse(
-            content=choice["message"]["content"],
+            content=message.get("content", ""),
             finish_reason=choice.get("finish_reason", "stop"),
             usage=data.get("usage", {}),
             model=data.get("model", req.model),
@@ -116,7 +117,10 @@ class BaseLLMProvider(ABC):
                         data = json.loads(payload)
                     except json.JSONDecodeError:
                         continue
-                    choice = data.get("choices", [{}])[0]
+                    choices = data.get("choices")
+                    if not choices:
+                        continue
+                    choice = choices[0]
                     delta = choice.get("delta", {})
                     yield LLMChunk(
                         content=delta.get("content", ""),
