@@ -87,7 +87,11 @@ COT_SYSTEM_PROMPT = """Режим цепочки мыслей. Структур�
 
 Финальный ответ — КРАТКИЙ и чёткий. Только суть, без повтора рассуждений."""
 
-BUDGET_FORCING_CONTINUATION = "\n\nПодожди, дай мне пересмотреть и подумать об этом более тщательно..."
+BUDGET_FORCING_CONTINUATION = """Продолжи анализ — ты ещё не закончил. Углуби рассуждения:
+— Проверь предыдущие выводы на ошибки и слабые места
+— Рассмотри альтернативные точки зрения
+— Добавь нюансы, которые упустил
+Продолжай рассуждения в <thinking></thinking>, затем дай обновлённый краткий ответ."""
 
 DOMAIN_CLASSIFIER_PROMPT = """Классифицируй следующее сообщение в одну из категорий.
 Допустимые категории: software_engineering, mathematics, medicine, law, finance, science, creative_writing, business, philosophy, general
@@ -267,6 +271,14 @@ class ReasoningEngine:
         return cleaned.strip()
 
     @staticmethod
+    def _clean_step_content(text: str) -> str:
+        """Strip thinking tags from step display content."""
+        import re
+        cleaned = re.sub(r'<thinking>.*?</thinking>', lambda m: m.group(0)[len('<thinking>'):-len('</thinking>')], text, flags=re.DOTALL)
+        cleaned = cleaned.replace('<thinking>', '').replace('</thinking>', '')
+        return cleaned.strip()
+
+    @staticmethod
     def _check_clarification(text: str) -> tuple[bool, str]:
         """Check if model is asking for clarification."""
         import re
@@ -427,7 +439,7 @@ class ReasoningEngine:
             steps.append(ThinkingStep(
                 step_number=2,
                 strategy="cot",
-                content=thinking,
+                content=self._clean_step_content(thinking),
                 duration_ms=0,
                 metadata={"type": "extracted_thinking"},
             ))
@@ -438,21 +450,20 @@ class ReasoningEngine:
         self, messages: list[LLMMessage], steps: list[ThinkingStep], rounds: int, persona: str
     ) -> AsyncIterator[dict]:
         if messages and messages[0].role == "system":
-            cot_messages = messages  # Already has system prompt from retune
+            cot_messages = list(messages)
         else:
-            cot_messages = [LLMMessage(role="system", content=persona)] + messages
-        accumulated = ""
+            cot_messages = [LLMMessage(role="system", content=persona)] + list(messages)
+
+        prev_round_content = ""
 
         for round_num in range(rounds):
             step_start = time.monotonic()
+            is_last_round = (round_num == rounds - 1)
 
             if round_num > 0:
-                # Force continuation by appending the model's own output + "Wait..."
-                cot_messages.append(LLMMessage(role="assistant", content=accumulated))
-                cot_messages.append(LLMMessage(
-                    role="user",
-                    content=BUDGET_FORCING_CONTINUATION,
-                ))
+                # Append previous round output + deepening instruction
+                cot_messages.append(LLMMessage(role="assistant", content=prev_round_content))
+                cot_messages.append(LLMMessage(role="user", content=BUDGET_FORCING_CONTINUATION))
                 yield {
                     "event": "thinking_step",
                     "data": {
@@ -465,7 +476,7 @@ class ReasoningEngine:
             req = LLMRequest(
                 messages=cot_messages,
                 model=self.model,
-                temperature=0.3 + (round_num * 0.1),  # Slight temp increase each round
+                temperature=0.3 + (round_num * 0.1),
                 max_tokens=2048,
             )
 
@@ -473,15 +484,19 @@ class ReasoningEngine:
             async for chunk in self.provider.stream(req):
                 if chunk.content:
                     round_content += chunk.content
-                    yield {"event": "content_delta", "data": {"content": chunk.content}}
+                    # Only stream the last round to user
+                    if is_last_round:
+                        yield {"event": "content_delta", "data": {"content": chunk.content}}
 
-            accumulated += round_content
+            prev_round_content = round_content
             step_ms = int((time.monotonic() - step_start) * 1000)
 
+            # Clean tags for step display
+            clean = self._clean_step_content(round_content)
             steps.append(ThinkingStep(
                 step_number=round_num + 1,
                 strategy="budget_forcing",
-                content=round_content[:500] + ("..." if len(round_content) > 500 else ""),
+                content=clean[:500] + ("..." if len(clean) > 500 else ""),
                 duration_ms=step_ms,
                 metadata={"round": round_num + 1, "full_length": len(round_content)},
             ))
@@ -523,10 +538,11 @@ class ReasoningEngine:
                 continue
             idx, content = r
             candidates.append(content)
+            clean = self._clean_step_content(content)
             steps.append(ThinkingStep(
                 step_number=idx + 1,
                 strategy="best_of_n",
-                content=content[:300] + ("..." if len(content) > 300 else ""),
+                content=clean[:300] + ("..." if len(clean) > 300 else ""),
                 duration_ms=int((time.monotonic() - step_start) * 1000),
                 metadata={"candidate": idx + 1, "type": "candidate"},
             ))
