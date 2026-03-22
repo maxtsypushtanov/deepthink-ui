@@ -4,6 +4,7 @@ import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ModelSelector } from './ModelSelector';
 import { StreamingMessage } from './StreamingMessage';
+import { PersonaIndicator } from '@/components/reasoning/PersonaIndicator';
 import { Zap } from 'lucide-react';
 
 export function ChatArea() {
@@ -23,6 +24,7 @@ export function ChatArea() {
       {/* Top bar */}
       <header className="flex items-center justify-between border-b border-border px-6 py-2">
         <ModelSelector />
+        <PersonaIndicator persona={streaming.currentPersona} />
       </header>
 
       {/* Messages */}
