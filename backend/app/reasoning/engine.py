@@ -50,6 +50,9 @@ class ReasoningResult:
     total_duration_ms: int = 0
 
 
+RETUNE_INTERVAL = 4  # Re-evaluate domain/persona every N messages
+
+
 @dataclass
 class SessionContext:
     """Tracks domain and expertise across conversation turns."""
@@ -57,11 +60,17 @@ class SessionContext:
     dominant_domain: str = "general"
     user_expertise_signals: list[str] = field(default_factory=list)
     conversation_turn: int = 0
+    last_persona: str = ""
+    last_retune_turn: int = 0
 
     def update(self, domain: str) -> None:
         self.detected_domains.append(domain)
         self.dominant_domain = max(set(self.detected_domains), key=self.detected_domains.count)
         self.conversation_turn += 1
+
+    def needs_retune(self) -> bool:
+        """Check if enough turns have passed since last re-tune."""
+        return (self.conversation_turn - self.last_retune_turn) >= RETUNE_INTERVAL
 
 
 # ── CoT Injection Prompts ──
@@ -194,6 +203,31 @@ class ReasoningEngine:
         self.provider = provider
         self.model = model
 
+    # ── Dynamic re-tuning ──
+
+    async def retune_if_needed(
+        self,
+        messages: list[LLMMessage],
+        strategy: str,
+        session_context: SessionContext,
+    ) -> str | None:
+        """Re-detect domain and rebuild persona every N turns.
+
+        Returns the refreshed system prompt, or None if no re-tune was needed.
+        """
+        if not session_context.needs_retune():
+            return session_context.last_persona or None
+
+        # Use only recent messages for domain re-detection
+        recent = messages[-6:] if len(messages) > 6 else messages
+        domain = await self._detect_domain(recent)
+        session_context.update(domain)
+        session_context.last_retune_turn = session_context.conversation_turn
+
+        persona = PersonaBuilder.build(domain, strategy, session_context)
+        session_context.last_persona = persona
+        return persona
+
     # ── Static helpers ──
 
     @staticmethod
@@ -259,8 +293,10 @@ class ReasoningEngine:
         if session_context:
             session_context.update(domain)
 
-        # Build dynamic persona
+        # Build dynamic persona and cache in session
         persona = PersonaBuilder.build(domain, strategy.value, session_context)
+        if session_context:
+            session_context.last_persona = persona
         label = PersonaBuilder.get_label(strategy.value)
         preview = PersonaBuilder.get_preview(domain)
 
