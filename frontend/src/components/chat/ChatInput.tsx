@@ -1,24 +1,31 @@
 import { useState, useRef, useEffect } from 'react';
 import { useChatStore } from '@/stores/chatStore';
+import { STRATEGY_LABELS_RU } from '@/lib/constants';
 import { cn } from '@/lib/utils';
-import { ArrowUp, Square } from 'lucide-react';
+import type { ReasoningStrategy } from '@/types';
+import { ArrowUp, Square, Brain, Sparkles, GitBranch, TreePine, Target, Zap } from 'lucide-react';
+
+const STRATEGY_OPTIONS: { key: ReasoningStrategy; icon: React.ComponentType<any>; color: string }[] = [
+  { key: 'auto', icon: Zap, color: 'text-amber-400' },
+  { key: 'none', icon: Target, color: 'text-gray-400' },
+  { key: 'cot', icon: Brain, color: 'text-blue-400' },
+  { key: 'budget_forcing', icon: Sparkles, color: 'text-purple-400' },
+  { key: 'best_of_n', icon: GitBranch, color: 'text-green-400' },
+  { key: 'tree_of_thoughts', icon: TreePine, color: 'text-orange-400' },
+];
 
 export function ChatInput() {
   const [input, setInput] = useState('');
+  const [strategyOpen, setStrategyOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const stopStreaming = useChatStore((s) => s.stopStreaming);
   const isStreaming = useChatStore((s) => s.streaming.isStreaming);
   const strategy = useChatStore((s) => s.settings.strategy);
+  const updateSettings = useChatStore((s) => s.updateSettings);
 
-  const STRATEGY_LABELS: Record<string, string> = {
-    none: 'Без рассуждений',
-    cot: 'Цепочка мыслей',
-    budget_forcing: 'Углублённый анализ',
-    best_of_n: 'Лучший из N',
-    tree_of_thoughts: 'Дерево мыслей',
-    auto: 'Авто (по сложности)',
-  };
+  const currentOption = STRATEGY_OPTIONS.find((o) => o.key === strategy) || STRATEGY_OPTIONS[0];
+  const CurrentIcon = currentOption.icon;
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -55,6 +62,47 @@ export function ChatInput() {
             className="flex-1 resize-none bg-transparent px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
           <div className="flex items-center gap-1 px-2 pb-2">
+            {/* Strategy chip */}
+            <div className="relative">
+              <button
+                onClick={() => setStrategyOpen(!strategyOpen)}
+                className={cn(
+                  'flex items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-medium transition-colors',
+                  'hover:bg-accent text-muted-foreground',
+                )}
+                title={STRATEGY_LABELS_RU[strategy] || strategy}
+              >
+                <CurrentIcon className={cn('h-3.5 w-3.5', currentOption.color)} />
+              </button>
+
+              {strategyOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setStrategyOpen(false)} />
+                  <div className="absolute bottom-full right-0 z-50 mb-2 w-52 rounded-lg border border-border bg-card p-1.5 shadow-lg">
+                    {STRATEGY_OPTIONS.map((opt) => {
+                      const Icon = opt.icon;
+                      return (
+                        <button
+                          key={opt.key}
+                          onClick={() => {
+                            updateSettings({ strategy: opt.key });
+                            setStrategyOpen(false);
+                          }}
+                          className={cn(
+                            'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors hover:bg-accent',
+                            strategy === opt.key ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground',
+                          )}
+                        >
+                          <Icon className={cn('h-3.5 w-3.5', opt.color)} />
+                          {STRATEGY_LABELS_RU[opt.key] || opt.key}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+
             {isStreaming ? (
               <button
                 onClick={stopStreaming}
@@ -78,10 +126,7 @@ export function ChatInput() {
             )}
           </div>
         </div>
-        <div className="mt-1.5 flex items-center justify-between px-1">
-          <span className="text-[10px] text-muted-foreground">
-            Стратегия: {STRATEGY_LABELS[strategy] || strategy}
-          </span>
+        <div className="mt-1.5 flex items-center justify-end px-1">
           <span className="text-[10px] text-muted-foreground">
             Shift+Enter — новая строка
           </span>
