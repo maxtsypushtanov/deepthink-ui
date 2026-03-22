@@ -2,17 +2,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ThinkingStep, StrategySelectedEvent } from '@/types';
 import { ThinkingPanel } from '@/components/reasoning/ThinkingPanel';
+import { STRATEGY_LABELS_RU } from '@/lib/constants';
 import { useChatStore } from '@/stores/chatStore';
 import { Bot } from 'lucide-react';
-
-const STRATEGY_LABELS_RU: Record<string, string> = {
-  cot: 'Цепочка мыслей',
-  budget_forcing: 'Углублённый анализ',
-  best_of_n: 'Лучший из N',
-  tree_of_thoughts: 'Дерево мыслей',
-  none: 'Прямой ответ',
-  auto: 'Авто',
-};
 
 interface Props {
   content: string;

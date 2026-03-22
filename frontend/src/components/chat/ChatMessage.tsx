@@ -2,18 +2,10 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Message, ThinkingStep } from '@/types';
-import { cn, formatTimestamp, formatDuration } from '@/lib/utils';
+import { cn, formatTimestamp } from '@/lib/utils';
+import { STRATEGY_LABELS_RU } from '@/lib/constants';
 import { ThinkingPanel } from '@/components/reasoning/ThinkingPanel';
 import { User, Bot, Copy, Check } from 'lucide-react';
-
-const STRATEGY_LABELS_RU: Record<string, string> = {
-  cot: 'Цепочка мыслей',
-  budget_forcing: 'Углублённый анализ',
-  best_of_n: 'Лучший из N',
-  tree_of_thoughts: 'Дерево мыслей',
-  none: 'Прямой ответ',
-  auto: 'Авто',
-};
 
 interface Props {
   message: Message;

@@ -23,6 +23,7 @@ const STRATEGY_BADGE: Record<string, { label: string; color: string; icon: React
 
 export function ThinkingPanel({ steps, strategy, isLive, persona, clarificationQuestion, onClarificationSubmit }: Props) {
   const [open, setOpen] = useState(isLive || false);
+  const [expandedStep, setExpandedStep] = useState<number | null>(null);
   const [clarificationAnswer, setClarificationAnswer] = useState('');
 
   const badge = STRATEGY_BADGE[strategy] || STRATEGY_BADGE.cot;
@@ -62,40 +63,56 @@ export function ThinkingPanel({ steps, strategy, isLive, persona, clarificationQ
       {open && (
         <div className="border-t border-border px-3 py-2">
           {persona && <PersonaCard persona={persona} />}
-          {steps.map((step, i) => (
-            <div
-              key={i}
-              className={cn(
-                'animate-fade-in relative border-l-2 py-2 pl-4',
-                getStepColor(step),
-              )}
-            >
-              <div className="flex items-center gap-2">
-                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-foreground">
-                  {step.step_number}
-                </span>
-                <span className="text-xs font-medium text-foreground">
-                  {step.strategy.replace('_', ' ')}
-                </span>
-                {step.duration_ms > 0 && (
-                  <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                    <Clock className="h-2.5 w-2.5" />
-                    {formatDuration(step.duration_ms)}
-                  </span>
+          {steps.map((step, i) => {
+            const isExpanded = expandedStep === i;
+            return (
+              <div
+                key={i}
+                className={cn(
+                  'animate-fade-in relative border-l-2 py-2 pl-4 cursor-pointer transition-colors hover:bg-accent/20 rounded-r',
+                  getStepColor(step),
                 )}
-                {step.metadata?.score !== undefined && (
-                  <span className="rounded bg-accent px-1.5 py-0.5 text-[10px] font-mono text-foreground">
-                    score: {Number(step.metadata.score).toFixed(2)}
+                onClick={() => setExpandedStep(isExpanded ? null : i)}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-foreground">
+                    {step.step_number}
                   </span>
+                  <span className="text-xs font-medium text-foreground">
+                    {step.strategy.replace('_', ' ')}
+                  </span>
+                  {step.duration_ms > 0 && (
+                    <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                      <Clock className="h-2.5 w-2.5" />
+                      {formatDuration(step.duration_ms)}
+                    </span>
+                  )}
+                  {step.metadata?.score !== undefined && (
+                    <div className="flex items-center gap-1.5 flex-1 max-w-[120px]">
+                      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className={cn(
+                            'h-full rounded-full transition-all',
+                            Number(step.metadata.score) >= 0.7 ? 'bg-green-400' :
+                            Number(step.metadata.score) >= 0.4 ? 'bg-yellow-400' : 'bg-red-400',
+                          )}
+                          style={{ width: `${Number(step.metadata.score) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono text-muted-foreground">
+                        {Number(step.metadata.score).toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                {step.content && (
+                  <p className={cn('mt-1 text-xs text-muted-foreground', !isExpanded && 'line-clamp-3')}>
+                    {step.content}
+                  </p>
                 )}
               </div>
-              {step.content && (
-                <p className="mt-1 text-xs text-muted-foreground line-clamp-3">
-                  {step.content}
-                </p>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
