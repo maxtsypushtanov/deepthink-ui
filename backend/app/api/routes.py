@@ -274,11 +274,25 @@ KNOWN_MODELS = {
         {"id": "deepseek-reasoner", "name": "DeepSeek R1", "context": 64000},
     ],
     "cloudru": [
-        {"id": "gpt-4o-mini", "name": "GPT-4o Mini (Cloud.ru)", "context": 128000},
-        {"id": "gpt-4o", "name": "GPT-4o (Cloud.ru)", "context": 128000},
-        {"id": "gigachat", "name": "GigaChat", "context": 32768},
-        {"id": "gigachat-pro", "name": "GigaChat Pro", "context": 32768},
-        {"id": "gigachat-max", "name": "GigaChat Max", "context": 32768},
+        # GigaChat family
+        {"id": "GigaChat", "name": "GigaChat", "context": 32768},
+        {"id": "GigaChat-Plus", "name": "GigaChat Plus", "context": 32768},
+        {"id": "GigaChat-Pro", "name": "GigaChat Pro", "context": 32768},
+        {"id": "GigaChat-Max", "name": "GigaChat Max", "context": 32768},
+        {"id": "GigaChat-2", "name": "GigaChat 2", "context": 32768},
+        {"id": "GigaChat-2-Max", "name": "GigaChat 2 Max", "context": 32768},
+        # Llama models
+        {"id": "llama-3.3-70b", "name": "Llama 3.3 70B", "context": 131072},
+        {"id": "llama-3.1-8b", "name": "Llama 3.1 8B", "context": 131072},
+        {"id": "llama-3.1-70b", "name": "Llama 3.1 70B", "context": 131072},
+        {"id": "llama-3.1-405b", "name": "Llama 3.1 405B", "context": 131072},
+        # DeepSeek models
+        {"id": "deepseek-r1", "name": "DeepSeek R1", "context": 64000},
+        {"id": "deepseek-v3", "name": "DeepSeek V3", "context": 64000},
+        # Qwen models
+        {"id": "qwen-2.5-72b", "name": "Qwen 2.5 72B", "context": 131072},
+        {"id": "qwen-2.5-coder-32b", "name": "Qwen 2.5 Coder 32B", "context": 131072},
+        {"id": "qwen-max", "name": "Qwen Max", "context": 32768},
     ],
     "custom": [],
 }
