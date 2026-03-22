@@ -34,6 +34,19 @@ export function ChatInput() {
     }
   }, [input]);
 
+  // Listen for edit-message events from ChatMessage
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const content = (e as CustomEvent).detail;
+      if (typeof content === 'string') {
+        setInput(content);
+        textareaRef.current?.focus();
+      }
+    };
+    window.addEventListener('deepthink:edit-message', handler);
+    return () => window.removeEventListener('deepthink:edit-message', handler);
+  }, []);
+
   const handleSubmit = () => {
     const trimmed = input.trim();
     if (!trimmed || isStreaming) return;

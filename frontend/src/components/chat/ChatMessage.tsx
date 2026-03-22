@@ -5,7 +5,8 @@ import type { Message, ThinkingStep } from '@/types';
 import { cn, formatTimestamp } from '@/lib/utils';
 import { STRATEGY_LABELS_RU } from '@/lib/constants';
 import { ThinkingPanel } from '@/components/reasoning/ThinkingPanel';
-import { User, Bot, Copy, Check } from 'lucide-react';
+import { User, Bot, Copy, Check, Pencil } from 'lucide-react';
+import { useChatStore } from '@/stores/chatStore';
 
 interface Props {
   message: Message;
@@ -29,6 +30,17 @@ export function ChatMessage({ message }: Props) {
     await navigator.clipboard.writeText(message.content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleEdit = () => {
+    const store = useChatStore.getState();
+    // Find this message's index and trim messages to it (exclude it)
+    const idx = store.messages.findIndex((m) => m.id === message.id);
+    if (idx >= 0) {
+      useChatStore.setState({ messages: store.messages.slice(0, idx) });
+    }
+    // Put content into input by dispatching a custom event
+    window.dispatchEvent(new CustomEvent('deepthink:edit-message', { detail: message.content }));
   };
 
   return (
@@ -80,25 +92,31 @@ export function ChatMessage({ message }: Props) {
           )}
         </div>
 
-        {/* Copy button */}
-        {!isUser && (
-          <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        {/* Action buttons */}
+        <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1 rounded px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            {copied ? (
+              <>
+                <Check className="h-3 w-3" /> Скопировано
+              </>
+            ) : (
+              <>
+                <Copy className="h-3 w-3" /> Копировать
+              </>
+            )}
+          </button>
+          {isUser && (
             <button
-              onClick={handleCopy}
+              onClick={handleEdit}
               className="flex items-center gap-1 rounded px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
             >
-              {copied ? (
-                <>
-                  <Check className="h-3 w-3" /> Скопировано
-                </>
-              ) : (
-                <>
-                  <Copy className="h-3 w-3" /> Копировать
-                </>
-              )}
+              <Pencil className="h-3 w-3" /> Изменить
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
