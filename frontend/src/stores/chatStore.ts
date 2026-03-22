@@ -234,11 +234,31 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
           case 'done': {
             set((s) => {
+              const content = s.streaming.currentContent;
+              const resetStreaming = {
+                isStreaming: false,
+                currentContent: '',
+                thinkingSteps: [],
+                strategyUsed: null,
+                isThinking: false,
+                currentPersona: null,
+                clarificationQuestion: null,
+                tokensGenerated: 0,
+              };
+              // Don't add empty assistant messages
+              if (!content || !content.trim()) {
+                return { streaming: resetStreaming };
+              }
+              // Don't add duplicate — check if last message is already this assistant response
+              const lastMsg = s.messages[s.messages.length - 1];
+              if (lastMsg?.role === 'assistant' && lastMsg.content === content) {
+                return { streaming: resetStreaming };
+              }
               const assistantMsg: Message = {
                 id: generateId(),
                 conversation_id: s.activeConversationId || '',
                 role: 'assistant',
-                content: s.streaming.currentContent,
+                content,
                 model: settings.model,
                 provider: settings.provider,
                 reasoning_strategy: s.streaming.strategyUsed || settings.strategy,
@@ -247,16 +267,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               };
               return {
                 messages: [...s.messages, assistantMsg],
-                streaming: {
-                  isStreaming: false,
-                  currentContent: '',
-                  thinkingSteps: [],
-                  strategyUsed: null,
-                  isThinking: false,
-                  currentPersona: null,
-                  clarificationQuestion: null,
-                  tokensGenerated: 0,
-                },
+                streaming: resetStreaming,
               };
             });
             break;
@@ -387,11 +398,31 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
           case 'done': {
             set((s) => {
+              const content = s.streaming.currentContent;
+              const resetStreaming = {
+                isStreaming: false,
+                currentContent: '',
+                thinkingSteps: [],
+                strategyUsed: null,
+                isThinking: false,
+                currentPersona: null,
+                clarificationQuestion: null,
+                tokensGenerated: 0,
+              };
+              // Don't add empty assistant messages
+              if (!content || !content.trim()) {
+                return { streaming: resetStreaming };
+              }
+              // Don't add duplicate
+              const lastMsg = s.messages[s.messages.length - 1];
+              if (lastMsg?.role === 'assistant' && lastMsg.content === content) {
+                return { streaming: resetStreaming };
+              }
               const assistantMsg: Message = {
                 id: generateId(),
                 conversation_id: s.activeConversationId || '',
                 role: 'assistant',
-                content: s.streaming.currentContent,
+                content,
                 model: settings.model,
                 provider: settings.provider,
                 reasoning_strategy: s.streaming.strategyUsed || settings.strategy,
@@ -400,16 +431,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               };
               return {
                 messages: [...s.messages, assistantMsg],
-                streaming: {
-                  isStreaming: false,
-                  currentContent: '',
-                  thinkingSteps: [],
-                  strategyUsed: null,
-                  isThinking: false,
-                  currentPersona: null,
-                  clarificationQuestion: null,
-                  tokensGenerated: 0,
-                },
+                streaming: resetStreaming,
               };
             });
             break;
