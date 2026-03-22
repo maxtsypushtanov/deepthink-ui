@@ -14,10 +14,22 @@ export function ChatArea() {
   const error = useChatStore((s) => s.error);
   const clearError = useChatStore((s) => s.clearError);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (scrollTimeoutRef.current) return;
+    scrollTimeoutRef.current = setTimeout(() => {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      scrollTimeoutRef.current = null;
+    }, 150);
   }, [messages, streaming.currentContent]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    };
+  }, []);
 
   return (
     <main className="flex flex-1 flex-col">

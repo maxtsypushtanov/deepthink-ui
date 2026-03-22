@@ -64,6 +64,25 @@ const DEFAULT_SETTINGS: ChatSettings = {
 };
 
 let abortController: AbortController | null = null;
+let contentBuffer = '';
+let bufferTokenCount = 0;
+let rafId: number | null = null;
+
+function flushContentBuffer() {
+  if (!contentBuffer) { rafId = null; return; }
+  const chunk = contentBuffer;
+  const tokens = bufferTokenCount;
+  contentBuffer = '';
+  bufferTokenCount = 0;
+  rafId = null;
+  useChatStore.setState((s) => ({
+    streaming: {
+      ...s.streaming,
+      currentContent: s.streaming.currentContent + chunk,
+      tokensGenerated: s.streaming.tokensGenerated + tokens,
+    },
+  }));
+}
 
 export const useChatStore = create<ChatStore>((set, get) => ({
   conversations: [],
@@ -221,13 +240,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             break;
 
           case 'content_delta':
-            set((s) => ({
-              streaming: {
-                ...s.streaming,
-                currentContent: s.streaming.currentContent + data.content,
-                tokensGenerated: s.streaming.tokensGenerated + 1,
-              },
-            }));
+            contentBuffer += data.content;
+            bufferTokenCount += 1;
+            if (!rafId) {
+              rafId = requestAnimationFrame(flushContentBuffer);
+            }
             break;
 
           case 'thinking_end':
@@ -243,8 +260,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             break;
 
           case 'done': {
+            // Flush any remaining buffered content
+            if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+            const pendingContent = contentBuffer;
+            const pendingTokens = bufferTokenCount;
+            contentBuffer = '';
+            bufferTokenCount = 0;
+
             set((s) => {
-              const content = s.streaming.currentContent;
+              const content = s.streaming.currentContent + pendingContent;
               const resetStreaming = {
                 isStreaming: false,
                 currentContent: '',
@@ -304,6 +328,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         set({ error: e.message });
       }
     } finally {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      if (contentBuffer) flushContentBuffer();
       set((s) => s.streaming.isStreaming ? { streaming: { ...s.streaming, isStreaming: false } } : s);
     }
   },
@@ -385,13 +411,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             break;
 
           case 'content_delta':
-            set((s) => ({
-              streaming: {
-                ...s.streaming,
-                currentContent: s.streaming.currentContent + data.content,
-                tokensGenerated: s.streaming.tokensGenerated + 1,
-              },
-            }));
+            contentBuffer += data.content;
+            bufferTokenCount += 1;
+            if (!rafId) {
+              rafId = requestAnimationFrame(flushContentBuffer);
+            }
             break;
 
           case 'thinking_end':
@@ -407,8 +431,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             break;
 
           case 'done': {
+            // Flush any remaining buffered content
+            if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+            const pendingContent = contentBuffer;
+            const pendingTokens = bufferTokenCount;
+            contentBuffer = '';
+            bufferTokenCount = 0;
+
             set((s) => {
-              const content = s.streaming.currentContent;
+              const content = s.streaming.currentContent + pendingContent;
               const resetStreaming = {
                 isStreaming: false,
                 currentContent: '',
@@ -468,12 +499,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         set({ error: e.message });
       }
     } finally {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      if (contentBuffer) flushContentBuffer();
       set((s) => s.streaming.isStreaming ? { streaming: { ...s.streaming, isStreaming: false } } : s);
     }
   },
 
   stopStreaming: () => {
     abortController?.abort();
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    contentBuffer = '';
+    bufferTokenCount = 0;
     set((s) => ({
       streaming: { ...s.streaming, isStreaming: false },
     }));

@@ -1,5 +1,3 @@
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import type { ThinkingStep, StrategySelectedEvent } from '@/types';
 import { ThinkingPanel } from '@/components/reasoning/ThinkingPanel';
 import { STRATEGY_LABELS_RU } from '@/lib/constants';
@@ -42,8 +40,8 @@ export function StreamingMessage({ content, isThinking, thinkingSteps, strategy,
       {/* Content */}
       {content ? (
         <div className="rounded-xl border border-border bg-card px-4 py-3">
-          <div className="prose prose-sm max-w-none dark:prose-invert">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          <div className="prose prose-sm max-w-none dark:prose-invert whitespace-pre-wrap break-words">
+            {content}
           </div>
           <span className="mt-1 inline-flex items-center gap-1.5">
             <span className="inline-block h-4 w-0.5 animate-pulse bg-foreground" />
