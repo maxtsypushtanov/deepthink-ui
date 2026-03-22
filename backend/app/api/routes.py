@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from fastapi import APIRouter, HTTPException
 from sse_starlette.sse import EventSourceResponse
+
+logger = logging.getLogger(__name__)
 
 from app.api.schemas import (
     ChatRequest,
@@ -263,6 +266,10 @@ KNOWN_MODELS = {
     ],
     "cloudru": [
         {"id": "gpt-4o-mini", "name": "GPT-4o Mini (Cloud.ru)", "context": 128000},
+        {"id": "gpt-4o", "name": "GPT-4o (Cloud.ru)", "context": 128000},
+        {"id": "gigachat", "name": "GigaChat", "context": 32768},
+        {"id": "gigachat-pro", "name": "GigaChat Pro", "context": 32768},
+        {"id": "gigachat-max", "name": "GigaChat Max", "context": 32768},
     ],
     "custom": [],
 }
@@ -321,6 +328,6 @@ async def list_models(provider: str):
                 fetched = await _fetch_models_from_api(provider, api_key)
                 if fetched:
                     return fetched
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to fetch models for {provider}: {e}")
     return KNOWN_MODELS.get(provider, [])

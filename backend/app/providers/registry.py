@@ -36,7 +36,11 @@ class CustomProvider(BaseLLMProvider):
     name = "custom"
 
     def __init__(self, api_key: str, base_url: str | None = None):
-        super().__init__(api_key, base_url or "http://localhost:11434/v1")
+        url = base_url or "http://localhost:11434/v1"
+        url = url.rstrip("/")
+        if not url.startswith(("http://", "https://")):
+            raise ValueError(f"base_url must start with http:// or https://, got: {url}")
+        super().__init__(api_key, url)
 
 
 PROVIDERS: dict[str, type[BaseLLMProvider]] = {
