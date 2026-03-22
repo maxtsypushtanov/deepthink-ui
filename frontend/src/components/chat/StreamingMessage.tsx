@@ -17,6 +17,8 @@ interface Props {
 export function StreamingMessage({ content, isThinking, thinkingSteps, strategy, persona }: Props) {
   const clarificationQuestion = useChatStore((s) => s.streaming.clarificationQuestion);
   const sendClarification = useChatStore((s) => s.sendClarification);
+  const tokensGenerated = useChatStore((s) => s.streaming.tokensGenerated);
+
   return (
     <div className="animate-fade-in mb-6">
       {/* Avatar */}
@@ -43,7 +45,12 @@ export function StreamingMessage({ content, isThinking, thinkingSteps, strategy,
           <div className="prose prose-sm max-w-none dark:prose-invert">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
           </div>
-          <span className="mt-2 inline-block h-4 w-0.5 animate-pulse bg-foreground" />
+          <span className="mt-1 inline-flex items-center gap-1.5">
+            <span className="inline-block h-4 w-0.5 animate-pulse bg-foreground" />
+            {tokensGenerated > 0 && (
+              <span className="text-[10px] text-muted-foreground">{tokensGenerated} tok</span>
+            )}
+          </span>
         </div>
       ) : isThinking ? null : (
         <div className="rounded-xl border border-border bg-card px-4 py-3">

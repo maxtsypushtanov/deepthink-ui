@@ -18,6 +18,7 @@ interface StreamingState {
   isThinking: boolean;
   currentPersona: StrategySelectedEvent | null;
   clarificationQuestion: string | null;
+  tokensGenerated: number;
 }
 
 interface ChatStore {
@@ -67,6 +68,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     isThinking: false,
     currentPersona: null,
     clarificationQuestion: null,
+    tokensGenerated: 0,
   },
   settings: DEFAULT_SETTINGS,
   error: null,
@@ -140,6 +142,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         isThinking: false,
         currentPersona: null,
         clarificationQuestion: null,
+        tokensGenerated: 0,
       },
       error: null,
     }));
@@ -212,6 +215,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               streaming: {
                 ...s.streaming,
                 currentContent: s.streaming.currentContent + data.content,
+                tokensGenerated: s.streaming.tokensGenerated + 1,
               },
             }));
             break;
@@ -251,6 +255,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                   isThinking: false,
                   currentPersona: null,
                   clarificationQuestion: null,
+                  tokensGenerated: 0,
                 },
               };
             });
@@ -363,6 +368,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               streaming: {
                 ...s.streaming,
                 currentContent: s.streaming.currentContent + data.content,
+                tokensGenerated: s.streaming.tokensGenerated + 1,
               },
             }));
             break;
@@ -402,6 +408,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                   isThinking: false,
                   currentPersona: null,
                   clarificationQuestion: null,
+                  tokensGenerated: 0,
                 },
               };
             });
