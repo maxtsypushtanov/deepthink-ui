@@ -36,9 +36,9 @@ export function EmptyState() {
     <div className="flex h-full items-center justify-center p-6">
       <div className="w-full max-w-2xl">
         {/* Logo */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-8 animate-fade-in" style={{ animationDelay: '0ms' }}>
           <div className="mx-auto mb-4 flex justify-center">
-            <DeepThinkLogo size={80} />
+            <DeepThinkLogo size={96} />
           </div>
           <h2 className="text-xl font-semibold tracking-tight">DeepThink</h2>
           <p className="mt-1.5 text-sm text-muted-foreground">
@@ -47,7 +47,7 @@ export function EmptyState() {
         </div>
 
         {/* Strategy selector */}
-        <div className="mb-8">
+        <div className="mb-8 animate-fade-in" style={{ animationDelay: '100ms', animationFillMode: 'both' }}>
           <p className="mb-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider">
             Выберите стратегию
           </p>
@@ -74,7 +74,7 @@ export function EmptyState() {
         </div>
 
         {/* Example cards */}
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 animate-fade-in" style={{ animationDelay: '200ms', animationFillMode: 'both' }}>
           {EXAMPLE_CARDS.map((card, i) => {
             const Icon = card.icon;
             const strategyColor = STRATEGY_OPTIONS.find((o) => o.key === card.strategy);
@@ -82,7 +82,7 @@ export function EmptyState() {
               <button
                 key={i}
                 onClick={() => handleCardClick(card.text, card.strategy)}
-                className="group flex items-start gap-3 rounded-xl border border-border bg-card p-3.5 text-left transition-all hover:border-foreground/20 hover:shadow-sm"
+                className="group flex items-start gap-3 rounded-xl border border-border bg-card p-3.5 text-left transition-all hover:border-foreground/20 hover:shadow-sm hover:scale-[1.01]"
               >
                 <div className={cn('mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', strategyColor?.color || 'bg-accent text-muted-foreground')}>
                   <Icon className="h-3.5 w-3.5" />

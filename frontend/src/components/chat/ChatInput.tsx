@@ -14,9 +14,18 @@ const STRATEGY_OPTIONS: { key: ReasoningStrategy; icon: React.ComponentType<any>
   { key: 'tree_of_thoughts', icon: TreePine, color: 'text-orange-400' },
 ];
 
+const PLACEHOLDERS = [
+  'Спросите что угодно...',
+  'Докажи, что √2 иррациональное число...',
+  'Сравни REST и GraphQL...',
+  'Объясни квантовые вычисления простыми словами...',
+  'Напиши функцию сортировки на Python...',
+];
+
 export function ChatInput() {
   const [input, setInput] = useState('');
   const [strategyOpen, setStrategyOpen] = useState(false);
+  const [placeholderIdx, setPlaceholderIdx] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const stopStreaming = useChatStore((s) => s.stopStreaming);
@@ -33,6 +42,13 @@ export function ChatInput() {
       textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
     }
   }, [input]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setPlaceholderIdx((i) => (i + 1) % PLACEHOLDERS.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Listen for edit-message events from ChatMessage
   useEffect(() => {
@@ -64,13 +80,13 @@ export function ChatInput() {
   return (
     <div className="border-t border-border px-4 py-3">
       <div className="mx-auto max-w-3xl">
-        <div className="relative flex items-end rounded-xl border border-border bg-card shadow-sm transition-shadow focus-within:shadow-md focus-within:ring-1 focus-within:ring-ring">
+        <div className="relative flex items-end rounded-xl border border-border bg-card shadow-sm transition-shadow focus-within:shadow-md focus-within:ring-2 focus-within:ring-ring/50 focus-within:border-foreground/20">
           <textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Спросите что угодно..."
+            placeholder={PLACEHOLDERS[placeholderIdx]}
             rows={1}
             className="flex-1 resize-none bg-transparent px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
@@ -83,7 +99,7 @@ export function ChatInput() {
                   'flex items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-medium transition-colors',
                   'hover:bg-accent text-muted-foreground',
                 )}
-                title={STRATEGY_LABELS_RU[strategy] || strategy}
+                title={`Стратегия: ${STRATEGY_LABELS_RU[strategy] || strategy}`}
               >
                 <CurrentIcon className={cn('h-3.5 w-3.5', currentOption.color)} />
               </button>

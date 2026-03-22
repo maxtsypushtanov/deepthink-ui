@@ -64,7 +64,7 @@ export function ChatMessage({ message }: Props) {
               {STRATEGY_LABELS_RU[message.reasoning_strategy] || message.reasoning_strategy.replace('_', ' ')}
             </span>
           )}
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
             {formatTimestamp(message.created_at)}
           </span>
         </div>
@@ -79,7 +79,7 @@ export function ChatMessage({ message }: Props) {
           className={cn(
             'rounded-xl px-4 py-3',
             isUser
-              ? 'bg-foreground text-background'
+              ? 'bg-foreground/90 text-background'
               : 'bg-card border border-border',
           )}
         >
@@ -96,6 +96,7 @@ export function ChatMessage({ message }: Props) {
         <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
           <button
             onClick={handleCopy}
+            title="Копировать текст"
             className="flex items-center gap-1 rounded px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             {copied ? (
@@ -111,6 +112,7 @@ export function ChatMessage({ message }: Props) {
           {isUser && (
             <button
               onClick={handleEdit}
+              title="Редактировать сообщение"
               className="flex items-center gap-1 rounded px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <Pencil className="h-3 w-3" /> Изменить

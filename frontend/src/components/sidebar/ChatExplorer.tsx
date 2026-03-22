@@ -270,6 +270,18 @@ function FolderItem({
   );
 }
 
+// ── Date grouping helper ──
+
+function getDateGroup(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return 'Сегодня';
+  if (diffDays === 1) return 'Вчера';
+  if (diffDays < 7) return 'Эта неделя';
+  return 'Ранее';
+}
+
 // ── Main ChatExplorer ──
 
 export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
@@ -383,7 +395,40 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
           />
         ))}
 
-        {rootConversations.map((conv) => (
+        {rootConversations.length === 0 && rootFolders.length === 0 && !collapsed && (
+          <p className="text-center text-xs text-muted-foreground/50 py-8">
+            Начните диалог — он появится здесь
+          </p>
+        )}
+
+        {!collapsed && rootConversations.length > 0 && (() => {
+          const groups: Record<string, Conversation[]> = {};
+          rootConversations.forEach((conv) => {
+            const group = getDateGroup(conv.created_at);
+            if (!groups[group]) groups[group] = [];
+            groups[group].push(conv);
+          });
+          const order = ['Сегодня', 'Вчера', 'Эта неделя', 'Ранее'];
+          return order.filter((g) => groups[g]).map((group) => (
+            <div key={group}>
+              <p className="px-1 pt-2 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/40">
+                {group}
+              </p>
+              {groups[group].map((conv) => (
+                <ConversationItem
+                  key={conv.id}
+                  conv={conv}
+                  isActive={activeId === conv.id}
+                  collapsed={collapsed}
+                  onSelect={() => selectConversation(conv.id)}
+                  onDelete={() => deleteConversation(conv.id)}
+                />
+              ))}
+            </div>
+          ));
+        })()}
+
+        {collapsed && rootConversations.map((conv) => (
           <ConversationItem
             key={conv.id}
             conv={conv}

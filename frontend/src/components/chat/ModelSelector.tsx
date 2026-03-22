@@ -26,6 +26,9 @@ export function ModelSelector() {
         <span className="font-medium">
           {currentModel?.name || settings.model.split('/').pop() || 'Select model'}
         </span>
+        {models.length === 0 && (
+          <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse" title="API-ключ не настроен" />
+        )}
         <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
       </button>
 

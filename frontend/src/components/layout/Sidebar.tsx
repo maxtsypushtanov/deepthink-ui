@@ -9,8 +9,8 @@ import {
   Sun,
   ChevronLeft,
   ChevronRight,
-  Zap,
 } from 'lucide-react';
+import { DeepThinkLogo } from '@/components/icons/DeepThinkLogo';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { ChatExplorer } from '@/components/sidebar/ChatExplorer';
 
@@ -31,7 +31,7 @@ export function Sidebar() {
     <>
       <aside
         className={cn(
-          'flex flex-col border-r border-border bg-card transition-all duration-200',
+          'flex flex-col border-r border-border bg-card transition-all duration-300 ease-out',
           collapsed ? 'w-14' : 'w-64',
         )}
       >
@@ -39,7 +39,7 @@ export function Sidebar() {
         <div className="flex items-center justify-between border-b border-border px-3 py-3">
           {!collapsed && (
             <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-foreground" />
+              <DeepThinkLogo size={20} />
               <span className="text-sm font-semibold tracking-tight">DeepThink</span>
             </div>
           )}
@@ -56,7 +56,7 @@ export function Sidebar() {
           <button
             onClick={() => createConversation()}
             className={cn(
-              'flex w-full items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground',
+              'flex w-full items-center gap-2 rounded-lg bg-foreground/5 border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground',
               collapsed && 'justify-center px-0',
             )}
           >

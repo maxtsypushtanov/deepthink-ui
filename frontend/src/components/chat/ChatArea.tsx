@@ -6,15 +6,24 @@ import { ModelSelector } from './ModelSelector';
 import { StreamingMessage } from './StreamingMessage';
 import { EmptyState } from './EmptyState';
 import { PersonaIndicator } from '@/components/reasoning/PersonaIndicator';
+import type { StrategySelectedEvent } from '@/types';
 
 export function ChatArea() {
   const messages = useChatStore((s) => s.messages);
   const streaming = useChatStore((s) => s.streaming);
   const activeId = useChatStore((s) => s.activeConversationId);
+  const conversations = useChatStore((s) => s.conversations);
   const error = useChatStore((s) => s.error);
   const clearError = useChatStore((s) => s.clearError);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPersonaRef = useRef<StrategySelectedEvent | null>(null);
+
+  if (streaming.currentPersona) {
+    lastPersonaRef.current = streaming.currentPersona;
+  }
+  const displayPersona = streaming.currentPersona || lastPersonaRef.current;
+  const activeTitle = conversations.find((c) => c.id === activeId)?.title;
 
   useEffect(() => {
     if (scrollTimeoutRef.current) return;
@@ -36,7 +45,12 @@ export function ChatArea() {
       {/* Top bar */}
       <header className="flex items-center justify-between border-b border-border px-6 py-2">
         <ModelSelector />
-        <PersonaIndicator persona={streaming.currentPersona} />
+        {activeTitle && (
+          <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+            {activeTitle}
+          </span>
+        )}
+        <PersonaIndicator persona={displayPersona} />
       </header>
 
       {/* Messages */}

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { ThinkingStep, StrategySelectedEvent, TreeNode } from '@/types';
 import { cn, formatDuration } from '@/lib/utils';
+import { STRATEGY_LABELS_RU } from '@/lib/constants';
 import { ChevronDown, ChevronRight, Brain, Clock, GitBranch, TreePine, Sparkles, Target, List, Network } from 'lucide-react';
 import { PersonaCard } from './PersonaCard';
 import { ReasoningTree } from './ReasoningTree';
@@ -66,6 +67,21 @@ export function ThinkingPanel({ steps, strategy, isLive, persona, clarificationQ
           {steps.length} {steps.length === 1 ? 'шаг' : steps.length < 5 ? 'шага' : 'шагов'}
         </span>
 
+        {!open && steps.length > 0 && (
+          <>
+            {steps.reduce((sum, s) => sum + s.duration_ms, 0) > 0 && (
+              <span className="text-[10px] text-muted-foreground">
+                {formatDuration(steps.reduce((sum, s) => sum + s.duration_ms, 0))}
+              </span>
+            )}
+            {steps.some(s => s.metadata?.score !== undefined) && (
+              <span className="text-[10px] text-muted-foreground">
+                лучший: {Math.max(...steps.filter(s => s.metadata?.score !== undefined).map(s => Number(s.metadata.score))).toFixed(2)}
+              </span>
+            )}
+          </>
+        )}
+
         {strategy === 'tree_of_thoughts' && treeNodes.length > 0 && (
           <span className="ml-auto flex items-center gap-0.5 mr-2">
             <button
@@ -115,7 +131,7 @@ export function ThinkingPanel({ steps, strategy, isLive, persona, clarificationQ
                     {step.step_number}
                   </span>
                   <span className="text-xs font-medium text-foreground">
-                    {step.strategy.replace('_', ' ')}
+                    {STRATEGY_LABELS_RU[step.strategy] || step.strategy.replace('_', ' ')}
                   </span>
                   {step.duration_ms > 0 && (
                     <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
@@ -128,7 +144,7 @@ export function ThinkingPanel({ steps, strategy, isLive, persona, clarificationQ
                       <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
                         <div
                           className={cn(
-                            'h-full rounded-full transition-all',
+                            'h-full rounded-full transition-all duration-500',
                             Number(step.metadata.score) >= 0.7 ? 'bg-green-400' :
                             Number(step.metadata.score) >= 0.4 ? 'bg-yellow-400' : 'bg-red-400',
                           )}
