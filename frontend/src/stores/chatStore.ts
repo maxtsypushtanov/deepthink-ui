@@ -229,30 +229,31 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             break;
 
           case 'done': {
-            const { streaming } = get();
-            const assistantMsg: Message = {
-              id: generateId(),
-              conversation_id: get().activeConversationId || '',
-              role: 'assistant',
-              content: streaming.currentContent,
-              model: settings.model,
-              provider: settings.provider,
-              reasoning_strategy: streaming.strategyUsed || settings.strategy,
-              reasoning_trace: JSON.stringify(streaming.thinkingSteps),
-              created_at: new Date().toISOString(),
-            };
-            set((s) => ({
-              messages: [...s.messages, assistantMsg],
-              streaming: {
-                isStreaming: false,
-                currentContent: '',
-                thinkingSteps: [],
-                strategyUsed: null,
-                isThinking: false,
-                currentPersona: null,
-                clarificationQuestion: null,
-              },
-            }));
+            set((s) => {
+              const assistantMsg: Message = {
+                id: generateId(),
+                conversation_id: s.activeConversationId || '',
+                role: 'assistant',
+                content: s.streaming.currentContent,
+                model: settings.model,
+                provider: settings.provider,
+                reasoning_strategy: s.streaming.strategyUsed || settings.strategy,
+                reasoning_trace: JSON.stringify(s.streaming.thinkingSteps),
+                created_at: new Date().toISOString(),
+              };
+              return {
+                messages: [...s.messages, assistantMsg],
+                streaming: {
+                  isStreaming: false,
+                  currentContent: '',
+                  thinkingSteps: [],
+                  strategyUsed: null,
+                  isThinking: false,
+                  currentPersona: null,
+                  clarificationQuestion: null,
+                },
+              };
+            });
             break;
           }
 
@@ -268,7 +269,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             break;
 
           case 'error':
-            set({ error: data.error, streaming: { ...get().streaming, isStreaming: false } });
+            set((s) => ({ error: data.error, streaming: { ...s.streaming, isStreaming: false } }));
             break;
         }
       }
@@ -277,9 +278,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         set({ error: e.message });
       }
     } finally {
-      set((s) => ({
-        streaming: { ...s.streaming, isStreaming: false },
-      }));
+      set((s) => s.streaming.isStreaming ? { streaming: { ...s.streaming, isStreaming: false } } : s);
     }
   },
 
@@ -381,30 +380,31 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             break;
 
           case 'done': {
-            const { streaming } = get();
-            const assistantMsg: Message = {
-              id: generateId(),
-              conversation_id: get().activeConversationId || '',
-              role: 'assistant',
-              content: streaming.currentContent,
-              model: settings.model,
-              provider: settings.provider,
-              reasoning_strategy: streaming.strategyUsed || settings.strategy,
-              reasoning_trace: JSON.stringify(streaming.thinkingSteps),
-              created_at: new Date().toISOString(),
-            };
-            set((s) => ({
-              messages: [...s.messages, assistantMsg],
-              streaming: {
-                isStreaming: false,
-                currentContent: '',
-                thinkingSteps: [],
-                strategyUsed: null,
-                isThinking: false,
-                currentPersona: null,
-                clarificationQuestion: null,
-              },
-            }));
+            set((s) => {
+              const assistantMsg: Message = {
+                id: generateId(),
+                conversation_id: s.activeConversationId || '',
+                role: 'assistant',
+                content: s.streaming.currentContent,
+                model: settings.model,
+                provider: settings.provider,
+                reasoning_strategy: s.streaming.strategyUsed || settings.strategy,
+                reasoning_trace: JSON.stringify(s.streaming.thinkingSteps),
+                created_at: new Date().toISOString(),
+              };
+              return {
+                messages: [...s.messages, assistantMsg],
+                streaming: {
+                  isStreaming: false,
+                  currentContent: '',
+                  thinkingSteps: [],
+                  strategyUsed: null,
+                  isThinking: false,
+                  currentPersona: null,
+                  clarificationQuestion: null,
+                },
+              };
+            });
             break;
           }
 
@@ -420,7 +420,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             break;
 
           case 'error':
-            set({ error: data.error, streaming: { ...get().streaming, isStreaming: false } });
+            set((s) => ({ error: data.error, streaming: { ...s.streaming, isStreaming: false } }));
             break;
         }
       }
@@ -429,9 +429,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         set({ error: e.message });
       }
     } finally {
-      set((s) => ({
-        streaming: { ...s.streaming, isStreaming: false },
-      }));
+      set((s) => s.streaming.isStreaming ? { streaming: { ...s.streaming, isStreaming: false } } : s);
     }
   },
 
