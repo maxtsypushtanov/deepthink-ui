@@ -18,9 +18,12 @@ from app.api.schemas import (
 from app.db import database as db
 from app.providers.base import LLMMessage
 from app.providers.registry import get_provider
-from app.reasoning.engine import ReasoningEngine, ReasoningStrategy
+from app.reasoning.engine import ReasoningEngine, ReasoningStrategy, SessionContext
 
 router = APIRouter()
+
+# In-memory session context storage keyed by conversation_id
+_session_contexts: dict[str, SessionContext] = {}
 
 
 # ── Chat (SSE streaming) ──
@@ -74,6 +77,11 @@ async def chat(req: ChatRequest):
     strategy = ReasoningStrategy(req.reasoning_strategy)
     engine = ReasoningEngine(provider, req.model)
 
+    # Get or create session context for this conversation
+    if conversation_id not in _session_contexts:
+        _session_contexts[conversation_id] = SessionContext()
+    session_context = _session_contexts[conversation_id]
+
     async def event_stream():
         full_content = ""
         reasoning_trace = []
@@ -93,6 +101,7 @@ async def chat(req: ChatRequest):
                 best_of_n=req.best_of_n,
                 tree_breadth=req.tree_breadth,
                 tree_depth=req.tree_depth,
+                session_context=session_context,
             ):
                 evt_type = event["event"]
                 evt_data = event["data"]
