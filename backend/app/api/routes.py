@@ -120,33 +120,41 @@ async def chat(req: ChatRequest):
 
                 if evt_type == "content_delta":
                     raw = evt_data["content"]
-                    # Buffer-based thinking tag filter
                     content_buffer += raw
                     while True:
                         if not in_thinking:
                             think_start = content_buffer.find("<thinking>")
-                            if think_start == -1:
-                                # No tag found — safe to emit all but last 10 chars (in case partial tag)
-                                safe = content_buffer[:-10] if len(content_buffer) > 10 else ""
-                                if safe:
-                                    full_content += safe
-                                    yield {"event": "content_delta", "data": json.dumps({"content": safe}, ensure_ascii=False)}
-                                    content_buffer = content_buffer[len(safe):]
-                                break
-                            else:
-                                # Emit everything before the tag
+                            lt_pos = content_buffer.find("<")
+                            if think_start != -1:
+                                # Found complete <thinking> tag
                                 before = content_buffer[:think_start]
                                 if before:
                                     full_content += before
                                     yield {"event": "content_delta", "data": json.dumps({"content": before}, ensure_ascii=False)}
-                                content_buffer = content_buffer[think_start:]
+                                content_buffer = content_buffer[think_start + len("<thinking>"):]
                                 in_thinking = True
+                            elif lt_pos != -1 and lt_pos >= len(content_buffer) - len("<thinking>") + 1:
+                                # Found '<' near end of buffer — could be start of partial <thinking> tag
+                                # Emit everything before it, hold the rest
+                                before = content_buffer[:lt_pos]
+                                if before:
+                                    full_content += before
+                                    yield {"event": "content_delta", "data": json.dumps({"content": before}, ensure_ascii=False)}
+                                content_buffer = content_buffer[lt_pos:]
+                                break
+                            else:
+                                # No '<' or '<' is early enough that it's clearly not <thinking>
+                                # Safe to emit everything
+                                if content_buffer:
+                                    full_content += content_buffer
+                                    yield {"event": "content_delta", "data": json.dumps({"content": content_buffer}, ensure_ascii=False)}
+                                content_buffer = ""
+                                break
                         else:
                             think_end = content_buffer.find("</thinking>")
                             if think_end == -1:
                                 break  # Wait for more data
                             else:
-                                # Skip the entire thinking block
                                 content_buffer = content_buffer[think_end + len("</thinking>"):]
                                 in_thinking = False
                 elif evt_type == "thinking_end":
@@ -169,11 +177,12 @@ async def chat(req: ChatRequest):
             return
 
         # Flush remaining buffer
-        if content_buffer:
-            if not in_thinking:
-                remaining = content_buffer.replace("<thinking>", "").replace("</thinking>", "").strip()
-                if remaining:
-                    full_content += remaining
+        if content_buffer and not in_thinking:
+            remaining = content_buffer.replace("<thinking>", "").replace("</thinking>", "")
+            if remaining:
+                full_content += remaining
+                yield {"event": "content_delta", "data": json.dumps({"content": remaining}, ensure_ascii=False)}
+        content_buffer = ""
 
         # Guard against None content
         full_content = full_content or ""
