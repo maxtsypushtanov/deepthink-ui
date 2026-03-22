@@ -86,6 +86,17 @@ DOMAIN_CLASSIFIER_PROMPT = """Классифицируй следующее со
 
 Ответь ТОЛЬКО названием категории, одним словом (или словосочетанием через _), без пояснений."""
 
+AMBIGUITY_DETECTOR_PROMPT = """Оцени, является ли следующий вопрос неоднозначным (ambiguous) — то есть требует уточнения для корректного ответа.
+
+Вопрос: {question}
+
+Если вопрос неоднозначный, ответь в формате:
+AMBIGUOUS: <уточняющий вопрос на языке пользователя>
+
+Если вопрос понятен — ответь только: CLEAR
+
+Отвечай ТОЛЬКО в одном из этих форматов."""
+
 COMPLEXITY_CLASSIFIER_PROMPT = """Оцени сложность следующего вопроса по шкале 1-5:
 1 = Простой факт или арифметика (например, «Сколько будет 2+2?», «Столица Франции?»)
 2 = Нужно базовое объяснение (например, «Что такое фотосинтез?»)
@@ -230,6 +241,12 @@ class ReasoningEngine:
         """
         # Detect domain (and optionally classify complexity) in parallel
         if strategy == ReasoningStrategy.AUTO:
+            # Check for ambiguity first
+            is_ambiguous, clarification_q = await self._check_ambiguity(messages)
+            if is_ambiguous:
+                yield {"event": "clarification_needed", "data": {"question": clarification_q}}
+                return
+
             classified_strategy, domain = await asyncio.gather(
                 self._classify_complexity(messages),
                 self._detect_domain(messages),
@@ -638,6 +655,32 @@ class ReasoningEngine:
             return ReasoningStrategy.BUDGET_FORCING
         else:
             return ReasoningStrategy.TREE_OF_THOUGHTS
+
+    # ── Ambiguity detection ──
+
+    async def _check_ambiguity(self, messages: list[LLMMessage]) -> tuple[bool, str]:
+        """Check if the user's question is ambiguous and needs clarification."""
+        user_msg = messages[-1].content if messages else ""
+        prompt = AMBIGUITY_DETECTOR_PROMPT.format(question=user_msg)
+
+        req = LLMRequest(
+            messages=[LLMMessage(role="user", content=prompt)],
+            model=self.model,
+            temperature=0.0,
+            max_tokens=60,
+        )
+
+        try:
+            resp = await self.provider.complete(req)
+            content = resp.content or ""
+            text = content.strip()
+            if text.upper().startswith("AMBIGUOUS:"):
+                clarification = text[len("AMBIGUOUS:"):].strip()
+                if clarification:
+                    return True, clarification
+        except Exception:
+            pass
+        return False, ""
 
     # ── Tree helpers ──
 
