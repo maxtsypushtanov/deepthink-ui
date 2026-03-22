@@ -86,12 +86,14 @@ async def chat(req: ChatRequest):
         _session_contexts[conversation_id] = SessionContext()
     session_context = _session_contexts[conversation_id]
 
-    # Dynamic re-tuning: every N messages, re-detect domain and refresh persona
+    # Dynamic re-tuning: detect domain and build/refresh persona
     refreshed_persona = await engine.retune_if_needed(
         messages, req.reasoning_strategy, session_context,
     )
-    if refreshed_persona:
-        # Inject refreshed system prompt at the start of messages
+    # Inject/replace system prompt at the start of messages
+    if messages and messages[0].role == "system":
+        messages[0] = LLMMessage(role="system", content=refreshed_persona)
+    else:
         messages.insert(0, LLMMessage(role="system", content=refreshed_persona))
 
     async def event_stream():

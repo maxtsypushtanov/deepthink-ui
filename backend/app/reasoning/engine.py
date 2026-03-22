@@ -50,7 +50,7 @@ class ReasoningResult:
     total_duration_ms: int = 0
 
 
-RETUNE_INTERVAL = 4  # Re-evaluate domain/persona every N messages
+RETUNE_INTERVAL = 2  # Re-evaluate domain/persona every N messages
 
 
 @dataclass
@@ -210,23 +210,19 @@ class ReasoningEngine:
         messages: list[LLMMessage],
         strategy: str,
         session_context: SessionContext,
-    ) -> str | None:
-        """Re-detect domain and rebuild persona every N turns.
+    ) -> str:
+        """Re-detect domain and rebuild persona. Always returns a persona string."""
+        # Always build on first call or when interval reached
+        if not session_context.last_persona or session_context.needs_retune():
+            recent = messages[-6:] if len(messages) > 6 else messages
+            domain = await self._detect_domain(recent)
+            session_context.update(domain)
+            session_context.last_retune_turn = session_context.conversation_turn
+            persona = PersonaBuilder.build(domain, strategy, session_context)
+            session_context.last_persona = persona
+            return persona
 
-        Returns the refreshed system prompt, or None if no re-tune was needed.
-        """
-        if not session_context.needs_retune():
-            return session_context.last_persona or None
-
-        # Use only recent messages for domain re-detection
-        recent = messages[-6:] if len(messages) > 6 else messages
-        domain = await self._detect_domain(recent)
-        session_context.update(domain)
-        session_context.last_retune_turn = session_context.conversation_turn
-
-        persona = PersonaBuilder.build(domain, strategy, session_context)
-        session_context.last_persona = persona
-        return persona
+        return session_context.last_persona
 
     # ── Static helpers ──
 
@@ -361,7 +357,10 @@ class ReasoningEngine:
     # ── Strategy: Passthrough (no reasoning) ──
 
     async def _run_passthrough(self, messages: list[LLMMessage], persona: str) -> AsyncIterator[dict]:
-        persona_messages = [LLMMessage(role="system", content=persona)] + messages
+        if messages and messages[0].role == "system":
+            persona_messages = messages  # Already has system prompt from retune
+        else:
+            persona_messages = [LLMMessage(role="system", content=persona)] + messages
         req = LLMRequest(messages=persona_messages, model=self.model)
         async for chunk in self.provider.stream(req):
             if chunk.content:
@@ -370,7 +369,10 @@ class ReasoningEngine:
     # ── Strategy: Chain-of-Thought Injection ──
 
     async def _run_cot(self, messages: list[LLMMessage], steps: list[ThinkingStep], persona: str) -> AsyncIterator[dict]:
-        cot_messages = [LLMMessage(role="system", content=persona)] + messages
+        if messages and messages[0].role == "system":
+            cot_messages = messages  # Already has system prompt from retune
+        else:
+            cot_messages = [LLMMessage(role="system", content=persona)] + messages
         req = LLMRequest(messages=cot_messages, model=self.model, temperature=0.3)
 
         step_start = time.monotonic()
@@ -405,7 +407,10 @@ class ReasoningEngine:
     async def _run_budget_forcing(
         self, messages: list[LLMMessage], steps: list[ThinkingStep], rounds: int, persona: str
     ) -> AsyncIterator[dict]:
-        cot_messages = [LLMMessage(role="system", content=persona)] + messages
+        if messages and messages[0].role == "system":
+            cot_messages = messages  # Already has system prompt from retune
+        else:
+            cot_messages = [LLMMessage(role="system", content=persona)] + messages
         accumulated = ""
 
         for round_num in range(rounds):
@@ -462,7 +467,10 @@ class ReasoningEngine:
         }
 
         # Generate N responses in parallel
-        cot_messages = [LLMMessage(role="system", content=persona)] + messages
+        if messages and messages[0].role == "system":
+            cot_messages = messages  # Already has system prompt from retune
+        else:
+            cot_messages = [LLMMessage(role="system", content=persona)] + messages
 
         async def generate_candidate(idx: int) -> tuple[int, str]:
             req = LLMRequest(
