@@ -598,25 +598,32 @@ class ReasoningEngine:
                 },
             }
 
+            parent_id = None
             if level == 0:
                 branches = await self._generate_branches(user_query, None, breadth)
             else:
                 # Take the best branch from previous level and expand
-                best_branch = max(tree, key=lambda b: b.get("score", 0))
+                prev_level_nodes = [n for n in tree if n["level"] == level - 1]
+                best_branch = max(prev_level_nodes, key=lambda b: b.get("score", 0))
+                parent_id = best_branch["id"]
                 branches = await self._generate_branches(
                     user_query, best_branch["thought"], breadth
                 )
 
-            # Score each branch
+            # Score all branches in parallel
+            score_tasks = [self._score_branch(user_query, branch) for branch in branches]
+            scores = await asyncio.gather(*score_tasks, return_exceptions=True)
+
             scored_branches = []
             for i, branch in enumerate(branches):
-                score = await self._score_branch(user_query, branch)
+                raw_score = scores[i] if i < len(scores) else 0.5
+                score = raw_score if isinstance(raw_score, float) else 0.5
                 branch_node = {
                     "id": f"L{level}-B{i}",
                     "level": level,
                     "thought": branch,
                     "score": score,
-                    "parent": tree[-1]["id"] if tree and level > 0 else None,
+                    "parent": parent_id,
                 }
                 scored_branches.append(branch_node)
                 tree.append(branch_node)
@@ -633,6 +640,7 @@ class ReasoningEngine:
                         "branch": i,
                         "score": score,
                         "node_id": branch_node["id"],
+                        "parent": parent_id,
                     },
                 ))
 
@@ -788,29 +796,40 @@ class ReasoningEngine:
         return branches[:n]
 
     async def _score_branch(self, query: str, thought: str) -> float:
-        prompt = f"""Оцени, насколько перспективна эта линия рассуждений для ответа на вопрос.
+        import re
+        import logging
+
+        prompt = f"""Оцени перспективность этой линии рассуждений для ответа на вопрос.
 
 Вопрос: {query}
 Рассуждение: {thought}
 
-Оцени от 0.0 до 1.0, где 1.0 = крайне перспективно. Ответь ТОЛЬКО десятичным числом."""
+Насколько это перспективный подход? Ответь ОДНИМ числом от 0.0 до 1.0 (например: 0.7). Ничего кроме числа."""
 
         req = LLMRequest(
             messages=[LLMMessage(role="user", content=prompt)],
             model=self.model,
             temperature=0.0,
-            max_tokens=10,
+            max_tokens=30,
         )
         try:
             resp = await self.provider.complete(req)
-            # Extract first float-like pattern from response
-            import re
-            match = re.search(r'(\d+\.?\d*)', resp.content.strip())
+            content = (resp.content or "").strip()
+            # Try to extract a float from the response
+            match = re.search(r'(0\.\d+|1\.0|0|1)', content)
             if match:
                 score = float(match.group(1))
-                return max(0.0, min(1.0, score))  # clamp
-        except Exception:
-            pass
+                return max(0.05, min(1.0, score))  # clamp, never exactly 0
+            # Fallback: try to find any number
+            match = re.search(r'(\d+\.?\d*)', content)
+            if match:
+                score = float(match.group(1))
+                if score > 1.0:
+                    score = score / 10.0  # handle "7" meaning 0.7
+                return max(0.05, min(1.0, score))
+            logging.warning(f"Score parse failed for response: {content!r}")
+        except Exception as e:
+            logging.warning(f"Branch scoring error: {e}")
         return 0.5
 
     def _get_best_path(self, tree: list[dict]) -> list[dict]:
