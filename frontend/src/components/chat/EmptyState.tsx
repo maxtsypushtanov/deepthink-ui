@@ -3,6 +3,7 @@ import { STRATEGY_LABELS_RU } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import type { ReasoningStrategy } from '@/types';
 import { Brain, Sparkles, GitBranch, TreePine, Target, Zap, Code, Calculator, BookOpen, Lightbulb, Scale, FlaskConical } from 'lucide-react';
+import { DeepThinkLogo } from '@/components/icons/DeepThinkLogo';
 
 const STRATEGY_OPTIONS: { key: ReasoningStrategy; icon: React.ComponentType<any>; color: string }[] = [
   { key: 'auto', icon: Zap, color: 'text-amber-400 border-amber-500/20 bg-amber-500/10' },
@@ -36,12 +37,12 @@ export function EmptyState() {
       <div className="w-full max-w-2xl">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent">
-            <Zap className="h-7 w-7 text-foreground" />
+          <div className="mx-auto mb-4 flex justify-center">
+            <DeepThinkLogo size={80} />
           </div>
-          <h2 className="text-xl font-semibold">DeepThink UI</h2>
+          <h2 className="text-xl font-semibold tracking-tight">DeepThink</h2>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            Любая модель получает суперспособности к рассуждению
+            Глубокое мышление для любой модели
           </p>
         </div>
 
