@@ -4,8 +4,8 @@ import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ModelSelector } from './ModelSelector';
 import { StreamingMessage } from './StreamingMessage';
+import { EmptyState } from './EmptyState';
 import { PersonaIndicator } from '@/components/reasoning/PersonaIndicator';
-import { Zap } from 'lucide-react';
 
 export function ChatArea() {
   const messages = useChatStore((s) => s.messages);
@@ -30,17 +30,7 @@ export function ChatArea() {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 && !streaming.isStreaming ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="text-center">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-accent">
-                <Zap className="h-6 w-6 text-foreground" />
-              </div>
-              <h2 className="text-lg font-semibold">DeepThink UI</h2>
-              <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                Любая модель получает суперспособности к рассуждению. Выберите стратегию и начните диалог.
-              </p>
-            </div>
-          </div>
+          <EmptyState />
         ) : (
           <div className="mx-auto max-w-3xl px-4 py-6">
             {messages.map((msg) => (
