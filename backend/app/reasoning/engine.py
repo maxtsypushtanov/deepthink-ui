@@ -599,7 +599,8 @@ class ReasoningEngine:
 
         try:
             resp = await self.provider.complete(req)
-            raw = resp.content.strip().lower().replace(" ", "_").strip(".,!?\"'`")
+            content = resp.content or ""
+            raw = content.strip().lower().replace(" ", "_").strip(".,!?\"'`")
             # Try to find a valid domain in the response
             for domain in VALID_DOMAINS:
                 if domain in raw:
@@ -624,8 +625,9 @@ class ReasoningEngine:
 
         try:
             resp = await self.provider.complete(req)
-            score = int(resp.content.strip()[0])
-        except (ValueError, IndexError):
+            content = resp.content or ""
+            score = int(content.strip()[0])
+        except Exception:
             score = 3  # Default to medium
 
         if score <= 2:

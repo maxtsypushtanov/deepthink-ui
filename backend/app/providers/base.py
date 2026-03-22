@@ -84,7 +84,10 @@ class BaseLLMProvider(ABC):
             resp.raise_for_status()
             data = resp.json()
 
-        choice = data["choices"][0]
+        choices = data.get("choices", [])
+        if not choices:
+            raise ValueError(f"Provider returned empty choices. Response: {data}")
+        choice = choices[0]
         return LLMResponse(
             content=choice["message"]["content"],
             finish_reason=choice.get("finish_reason", "stop"),

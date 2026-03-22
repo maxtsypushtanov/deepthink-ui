@@ -151,6 +151,9 @@ async def chat(req: ChatRequest):
                 if remaining:
                     full_content += remaining
 
+        # Guard against None content
+        full_content = full_content or ""
+
         # Strip any remaining thinking tags from full_content
         full_content = ReasoningEngine._strip_thinking_tags(full_content)
 
@@ -172,6 +175,8 @@ async def chat(req: ChatRequest):
             reasoning_strategy=strategy.value,
             reasoning_trace=json.dumps(reasoning_trace, ensure_ascii=False) if reasoning_trace else None,
         )
+
+        yield {"event": "done", "data": json.dumps({})}
 
     return EventSourceResponse(event_stream())
 
