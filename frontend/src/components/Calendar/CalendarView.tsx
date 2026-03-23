@@ -1,11 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
 import { useCalendarStore } from '@/stores/calendarStore';
 import type { CalendarEvent } from '@/stores/calendarStore';
 import { cn } from '@/lib/utils';
-import {
-  ChevronLeft, ChevronRight, Calendar, Send, Loader2,
-  Trash2, Clock, CheckCircle,
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Trash2 } from 'lucide-react';
 
 const HOURS = Array.from({ length: 12 }, (_, i) => i + 8); // 8:00 — 19:00
 const DAYS_RU = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -20,17 +17,9 @@ export function CalendarView() {
   }, [loadEvents]);
 
   return (
-    <div className="flex h-full overflow-hidden">
-      {/* Week grid */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <WeekHeader />
-        <WeekGrid />
-      </div>
-
-      {/* Agent chat panel */}
-      <div className="w-80 border-l border-border flex flex-col">
-        <AgentChat />
-      </div>
+    <div className="flex h-full flex-col overflow-hidden">
+      <WeekHeader />
+      <WeekGrid />
     </div>
   );
 }
@@ -38,7 +27,6 @@ export function CalendarView() {
 // ── Week Header ──
 
 function WeekHeader() {
-  const weekOffset = useCalendarStore((s) => s.weekOffset);
   const prevWeek = useCalendarStore((s) => s.prevWeek);
   const nextWeek = useCalendarStore((s) => s.nextWeek);
   const goToday = useCalendarStore((s) => s.goToday);
@@ -54,6 +42,9 @@ function WeekHeader() {
     <div className="flex items-center gap-3 border-b border-border px-4 py-2.5 shrink-0">
       <Calendar className="h-4 w-4 text-primary" strokeWidth={1.5} />
       <span className="text-sm font-medium">{label}</span>
+      <p className="text-[10px] text-muted-foreground/50">
+        Добавляйте встречи через чат
+      </p>
       <div className="ml-auto flex items-center gap-1">
         <button onClick={goToday} className="rounded px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-accent transition-colors">
           Сегодня
@@ -114,11 +105,9 @@ function WeekGrid() {
       <div className="grid grid-cols-[50px_repeat(7,1fr)]">
         {HOURS.map((hour) => (
           <div key={hour} className="contents">
-            {/* Time label */}
             <div className="h-14 border-b border-border/20 pr-2 pt-0.5 text-right text-[10px] text-muted-foreground/50">
               {hour}:00
             </div>
-            {/* Day cells */}
             {days.map((d, di) => {
               const cellStart = new Date(d);
               cellStart.setHours(hour, 0, 0, 0);
@@ -132,10 +121,7 @@ function WeekGrid() {
               });
 
               return (
-                <div
-                  key={di}
-                  className="relative h-14 border-b border-l border-border/20"
-                >
+                <div key={di} className="relative h-14 border-b border-l border-border/20">
                   {cellEvents.map((ev) => (
                     <EventChip
                       key={ev.id}
@@ -187,107 +173,5 @@ function EventChip({
         <Trash2 className="h-2.5 w-2.5" />
       </button>
     </div>
-  );
-}
-
-// ── Agent Chat Panel ──
-
-function AgentChat() {
-  const messages = useCalendarStore((s) => s.agentMessages);
-  const streaming = useCalendarStore((s) => s.agentStreaming);
-  const streamContent = useCalendarStore((s) => s.agentStreamContent);
-  const sendMessage = useCalendarStore((s) => s.sendAgentMessage);
-  const [input, setInput] = useState('');
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamContent]);
-
-  function handleSend() {
-    if (!input.trim() || streaming) return;
-    sendMessage(input.trim());
-    setInput('');
-  }
-
-  return (
-    <>
-      {/* Header */}
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2.5 shrink-0">
-        <Clock className="h-3.5 w-3.5 text-primary" strokeWidth={1.5} />
-        <span className="text-xs font-medium">Ассистент календаря</span>
-      </div>
-
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
-        {messages.length === 0 && !streaming && (
-          <div className="text-center text-xs text-muted-foreground/50 py-8">
-            <p>Напишите, например:</p>
-            <p className="mt-1 italic">Добавь встречу с командой на завтра</p>
-          </div>
-        )}
-
-        {messages.map((msg) => (
-          <div key={msg.id} className={cn(
-            'text-xs leading-relaxed',
-            msg.role === 'user' ? 'text-foreground' : 'text-muted-foreground',
-          )}>
-            {msg.role === 'user' && (
-              <div className="mb-1 text-[10px] font-medium text-muted-foreground/50">Вы</div>
-            )}
-            <div className="whitespace-pre-wrap">{msg.content}</div>
-            {msg.createdEvent && (
-              <div className="mt-1.5 flex items-center gap-1.5 rounded border border-green-500/20 bg-green-500/5 px-2 py-1">
-                <CheckCircle className="h-3 w-3 text-green-400" strokeWidth={1.5} />
-                <span className="text-green-400 font-medium">{msg.createdEvent.title}</span>
-              </div>
-            )}
-          </div>
-        ))}
-
-        {streaming && streamContent && (
-          <div className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
-            {streamContent}
-            <span className="inline-block w-1 h-3 ml-0.5 animate-pulse bg-muted-foreground/30" />
-          </div>
-        )}
-
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Input */}
-      <div className="shrink-0 border-t border-border px-3 py-2.5">
-        <div className="flex items-center gap-2">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-            placeholder="Добавить встречу..."
-            disabled={streaming}
-            className={cn(
-              'flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs',
-              'placeholder:text-muted-foreground/40',
-              'focus:outline-none focus:ring-1 focus:ring-ring/30',
-            )}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || streaming}
-            className={cn(
-              'rounded-lg p-1.5 transition-colors',
-              input.trim() && !streaming
-                ? 'text-primary hover:bg-primary/10'
-                : 'text-muted-foreground/30 cursor-not-allowed',
-            )}
-          >
-            {streaming ? (
-              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.5} />
-            ) : (
-              <Send className="h-4 w-4" strokeWidth={1.5} />
-            )}
-          </button>
-        </div>
-      </div>
-    </>
   );
 }

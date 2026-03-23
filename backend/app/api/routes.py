@@ -78,6 +78,35 @@ async def chat(req: ChatRequest):
     if req.clarification_context:
         messages.append(LLMMessage(role="system", content=req.clarification_context))
 
+    # Inject calendar context if message mentions calendar/meeting keywords
+    calendar_keywords = ("встреч", "календар", "расписани", "запланир", "назначь", "добавь встречу", "собрани", "созвон")
+    if any(kw in req.message.lower() for kw in calendar_keywords):
+        from app.db import calendar as cal_db
+        from datetime import datetime, timedelta
+        today = datetime.now().strftime("%Y-%m-%d")
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        week_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start -= timedelta(days=week_start.weekday())
+        week_end = week_start + timedelta(days=7)
+        existing = await cal_db.list_events(week_start.isoformat(), week_end.isoformat())
+        free_today = await cal_db.find_free_slots(today)
+        free_tomorrow = await cal_db.find_free_slots(tomorrow)
+
+        cal_context = (
+            f"У тебя есть доступ к календарю пользователя.\n"
+            f"Сегодня: {today}\n\n"
+            f"Встречи на этой неделе:\n"
+            + ("\n".join(f"- {e['title']}: {e['start_time']} — {e['end_time']}" for e in existing) or "Нет встреч")
+            + f"\n\nСвободные слоты сегодня ({today}):\n"
+            + ("\n".join(f"  {s['start']} — {s['end']}" for s in free_today) or "  Нет")
+            + f"\n\nСвободные слоты завтра ({tomorrow}):\n"
+            + ("\n".join(f"  {s['start']} — {s['end']}" for s in free_tomorrow) or "  Нет")
+            + "\n\nЧтобы создать встречу, включи в ответ JSON-блок:\n"
+            '{"calendar_event": {"title": "Название", "start_time": "ISO", "end_time": "ISO", "description": "..."}}\n'
+            "Встреча будет создана автоматически. Предложи пользователю 2-3 варианта времени из свободных слотов."
+        )
+        messages.insert(0, LLMMessage(role="system", content=cal_context))
+
     strategy = ReasoningStrategy(req.reasoning_strategy)
     engine = ReasoningEngine(provider, req.model)
 
@@ -205,7 +234,30 @@ async def chat(req: ChatRequest):
             reasoning_trace=json.dumps(reasoning_trace, ensure_ascii=False) if reasoning_trace else None,
         )
 
-        yield {"event": "done", "data": json.dumps({})}
+        # Auto-detect calendar event creation in response
+        created_event = None
+        try:
+            import re
+            match = re.search(r'\{[\s\S]*"calendar_event"[\s\S]*\}', full_content)
+            if match:
+                from app.db import calendar as cal_db
+                data = json.loads(match.group())
+                ev = data.get("calendar_event", data)
+                if ev.get("title") and ev.get("start_time") and ev.get("end_time"):
+                    created_event = await cal_db.create_event(
+                        title=ev["title"],
+                        start_time=ev["start_time"],
+                        end_time=ev["end_time"],
+                        description=ev.get("description", ""),
+                    )
+        except Exception:
+            pass  # not a calendar response
+
+        done_data: dict = {}
+        if created_event:
+            done_data["created_event"] = created_event
+
+        yield {"event": "done", "data": json.dumps(done_data, ensure_ascii=False)}
 
     return EventSourceResponse(event_stream())
 
