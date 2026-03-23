@@ -6,8 +6,7 @@ import logging
 import os
 import time
 
-from e2b import Sandbox
-from e2b.exceptions import CommandExitException
+from e2b import CommandExitException, Sandbox
 
 from app.sandbox.base import SandboxClient, SandboxResult
 
