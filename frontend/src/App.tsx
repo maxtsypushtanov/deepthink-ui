@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { PipelineView } from '@/components/Pipeline/PipelineView';
+import { CalendarView } from '@/components/Calendar/CalendarView';
 import { useThemeStore } from '@/stores/themeStore';
 import { useChatStore } from '@/stores/chatStore';
 import { usePipelineStore } from '@/stores/pipelineStore';
 import { cn } from '@/lib/utils';
-import { MessageSquare, GitBranch } from 'lucide-react';
+import { MessageSquare, GitBranch, Calendar } from 'lucide-react';
 
-type Tab = 'chat' | 'pipeline';
+type Tab = 'chat' | 'pipeline' | 'calendar';
 
 export default function App() {
   const theme = useThemeStore((s) => s.mode);
@@ -25,7 +26,6 @@ export default function App() {
     loadConversations();
   }, [loadConversations]);
 
-  // Auto-switch to pipeline tab when pipeline starts
   useEffect(() => {
     if (pipelineStatus === 'running') {
       setActiveTab('pipeline');
@@ -67,12 +67,19 @@ export default function App() {
             label="Пайплайн"
             badge={pipelineStatus === 'running'}
           />
+          <TabButton
+            active={activeTab === 'calendar'}
+            onClick={() => setActiveTab('calendar')}
+            icon={<Calendar className="h-3.5 w-3.5" />}
+            label="Календарь"
+          />
         </div>
 
         {/* Tab content */}
         <div className="flex-1 overflow-hidden">
           {activeTab === 'chat' && <ChatArea />}
           {activeTab === 'pipeline' && <PipelineView />}
+          {activeTab === 'calendar' && <CalendarView />}
         </div>
       </div>
     </div>

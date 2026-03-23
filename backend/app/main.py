@@ -5,15 +5,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.calendar import router as calendar_router
 from app.api.pipeline import router as pipeline_router
 from app.api.routes import router
 from app.core.config import settings
+from app.db.calendar import init_calendar_db
 from app.db.database import init_db
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await init_calendar_db()
     yield
 
 
@@ -34,6 +37,7 @@ app.add_middleware(
 
 app.include_router(router)
 app.include_router(pipeline_router)
+app.include_router(calendar_router)
 
 
 @app.get("/health")
