@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import uuid
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.mcp.client import MCPClient
 from app.pipeline.context import DevLoopContext
 from app.pipeline.dev_loop import run as run_pipeline
@@ -55,7 +55,7 @@ class PipelineStatusResponse(BaseModel):
 
 async def _create_mcp_client() -> MCPClient:
     """Create and initialise an MCP client for the GitHub MCP Server."""
-    token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN", "")
+    token = settings.github_personal_access_token
     client = MCPClient(
         command="npx",
         args=["-y", "@modelcontextprotocol/server-github"],
@@ -67,7 +67,7 @@ async def _create_mcp_client() -> MCPClient:
 
 async def _create_sandbox() -> E2BSandboxClient:
     """Create and initialise an E2B sandbox."""
-    api_key = os.getenv("E2B_API_KEY", "")
+    api_key = settings.e2b_api_key
     sandbox = E2BSandboxClient(api_key=api_key)
     await sandbox.initialize()
     return sandbox
@@ -91,11 +91,11 @@ async def _run_task(task_id: str, task: str, repo: str, max_iterations: int) -> 
             mcp_client=mcp_client,
             sandbox=sandbox,
             max_iterations=max_iterations,
-            stop_on_clean_iterations=int(os.getenv("STOP_ON_CLEAN_ITERATIONS", "2")),
-            architect_model=os.getenv("ARCHITECT_MODEL", "openai/gpt-oss-120b"),
-            developer_model=os.getenv("DEVELOPER_MODEL", "zai-org/GLM-4.7"),
-            tester_model=os.getenv("TESTER_MODEL", "zai-org/GLM-4.7-Flash"),
-            orchestrator_model=os.getenv("ORCHESTRATOR_MODEL", "zai-org/GLM-4.6"),
+            stop_on_clean_iterations=settings.stop_on_clean_iterations,
+            architect_model=settings.architect_model,
+            developer_model=settings.developer_model,
+            tester_model=settings.tester_model,
+            orchestrator_model=settings.orchestrator_model,
             on_event=on_event,
         )
         _tasks[task_id] = {"status": "done", "context": context}

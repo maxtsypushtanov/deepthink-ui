@@ -24,6 +24,18 @@ class Settings(BaseSettings):
     custom_api_key: str = ""
     custom_base_url: str = ""
 
+    # Multi-agent pipeline
+    github_personal_access_token: str = ""
+    github_mcp_server: str = "stdio"
+    sandbox_provider: str = "e2b"
+    e2b_api_key: str = ""
+    architect_model: str = "openai/gpt-oss-120b"
+    developer_model: str = "zai-org/GLM-4.7"
+    tester_model: str = "zai-org/GLM-4.7-Flash"
+    orchestrator_model: str = "zai-org/GLM-4.6"
+    max_iterations: int = 5
+    stop_on_clean_iterations: int = 2
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
