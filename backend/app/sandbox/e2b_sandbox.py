@@ -1,16 +1,23 @@
-"""E2B implementation of SandboxClient."""
+"""E2B implementation of SandboxClient (compatible with e2b SDK v2.16.0)."""
 
 from __future__ import annotations
 
 import logging
+import os
 import time
-from typing import Any
 
 from e2b import Sandbox
+from e2b.exceptions import CommandExitException
 
 from app.sandbox.base import SandboxClient, SandboxResult
 
 logger = logging.getLogger(__name__)
+
+
+def _set_api_key(api_key: str) -> None:
+    """Ensure E2B_API_KEY is in the environment (SDK reads it automatically)."""
+    if api_key:
+        os.environ["E2B_API_KEY"] = api_key
 
 
 class E2BSandboxClient(SandboxClient):
@@ -18,7 +25,7 @@ class E2BSandboxClient(SandboxClient):
 
     Lifecycle:
       1. initialize() — create a base sandbox with dependencies installed.
-      2. fork()       — snapshot the base and spin up a short-lived clone (~200 ms).
+      2. fork()       — spin up a fresh sandbox for a single test run.
       3. execute()    — run code in the sandbox.
       4. destroy()    — tear down the sandbox.
     """
@@ -27,25 +34,27 @@ class E2BSandboxClient(SandboxClient):
         self._api_key = api_key
         self._template = template
         self._sandbox: Sandbox | None = None
-        self._snapshot_id: str | None = None
 
     async def initialize(self, requirements_txt: str = "") -> None:
         """Spin up a base sandbox and install Python dependencies."""
-        self._sandbox = Sandbox(template=self._template, api_key=self._api_key)
+        _set_api_key(self._api_key)
+        self._sandbox = Sandbox.create(template=self._template)
         if requirements_txt.strip():
             self._sandbox.files.write("/tmp/requirements.txt", requirements_txt)
-            proc = self._sandbox.commands.run("pip install -r /tmp/requirements.txt", timeout=120)
-            if proc.exit_code != 0:
-                logger.error("pip install failed: %s", proc.stderr)
-                raise RuntimeError(f"Failed to install dependencies: {proc.stderr}")
+            try:
+                self._sandbox.commands.run("pip install -r /tmp/requirements.txt", timeout=120)
+            except CommandExitException as exc:
+                logger.error("pip install failed: %s", exc.stderr)
+                raise RuntimeError(f"Failed to install dependencies: {exc.stderr}") from exc
         logger.info("E2B base sandbox ready (template=%s)", self._template)
 
     async def fork(self) -> "E2BSandboxClient":
-        """Create a lightweight clone from the current sandbox."""
+        """Create a fresh sandbox clone for a single run."""
         if self._sandbox is None:
             raise RuntimeError("Base sandbox not initialized — call initialize() first")
+        _set_api_key(self._api_key)
         child = E2BSandboxClient(api_key=self._api_key, template=self._template)
-        child._sandbox = Sandbox(template=self._template, api_key=self._api_key)
+        child._sandbox = Sandbox.create(template=self._template)
         logger.debug("Forked sandbox")
         return child
 
@@ -55,23 +64,33 @@ class E2BSandboxClient(SandboxClient):
             raise RuntimeError("Sandbox not initialized")
         self._sandbox.files.write("/tmp/run.py", code)
         t0 = time.perf_counter_ns()
-        proc = self._sandbox.commands.run(f"python /tmp/run.py", timeout=timeout)
-        duration_ms = (time.perf_counter_ns() - t0) // 1_000_000
-        return SandboxResult(
-            stdout=proc.stdout,
-            stderr=proc.stderr,
-            exit_code=proc.exit_code,
-            duration_ms=duration_ms,
-        )
+        try:
+            proc = self._sandbox.commands.run("python /tmp/run.py", timeout=timeout)
+            duration_ms = (time.perf_counter_ns() - t0) // 1_000_000
+            return SandboxResult(
+                stdout=proc.stdout,
+                stderr=proc.stderr,
+                exit_code=proc.exit_code,
+                duration_ms=duration_ms,
+            )
+        except CommandExitException as exc:
+            duration_ms = (time.perf_counter_ns() - t0) // 1_000_000
+            return SandboxResult(
+                stdout=exc.stdout,
+                stderr=exc.stderr,
+                exit_code=exc.exit_code,
+                duration_ms=duration_ms,
+            )
 
     async def update_base(self, new_deps: str) -> None:
         """Install additional dependencies into the base sandbox."""
         if self._sandbox is None:
             raise RuntimeError("Base sandbox not initialized")
         self._sandbox.files.write("/tmp/extra_requirements.txt", new_deps)
-        proc = self._sandbox.commands.run("pip install -r /tmp/extra_requirements.txt", timeout=120)
-        if proc.exit_code != 0:
-            raise RuntimeError(f"Failed to install extra deps: {proc.stderr}")
+        try:
+            self._sandbox.commands.run("pip install -r /tmp/extra_requirements.txt", timeout=120)
+        except CommandExitException as exc:
+            raise RuntimeError(f"Failed to install extra deps: {exc.stderr}") from exc
         logger.info("Updated base sandbox with additional dependencies")
 
     async def destroy(self) -> None:
