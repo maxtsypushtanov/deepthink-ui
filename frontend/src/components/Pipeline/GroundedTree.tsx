@@ -79,6 +79,60 @@ function getToolCalls(agent: AgentType, events: PipelineEvent[]) {
   return calls;
 }
 
+function getAgentThinking(agent: AgentType, events: PipelineEvent[]): string {
+  let text = '';
+  for (const e of events) {
+    if (e.type === 'agent_thinking' && e.agent === agent && e.chunk) {
+      text += e.chunk;
+    }
+  }
+  return text;
+}
+
+/** Smart-format tool output based on tool name */
+function formatToolOutput(tool: string, raw: string): string {
+  // Try parse as JSON
+  try {
+    const data = JSON.parse(raw);
+
+    if (tool === 'list_commits' && Array.isArray(data)) {
+      if (data.length === 0) return 'Коммитов не найдено';
+      const first = data[0];
+      const sha = (first.sha || '').slice(0, 7);
+      const msg = first.commit?.message?.split('\n')[0] || '';
+      return `${sha} ${msg}${data.length > 1 ? ` (+${data.length - 1} ещё)` : ''}`;
+    }
+
+    if (tool === 'search_code') {
+      const count = data.total_count ?? data.items?.length ?? 0;
+      return `Найдено ${count} результатов`;
+    }
+
+    if (tool === 'get_file_contents' || tool === 'get_file') {
+      const name = data.name || data.path || '';
+      const content = data.content || '';
+      const lines = content.split('\n').slice(0, 3).join('\n');
+      return name ? `${name}\n${lines}` : lines || raw.slice(0, 120);
+    }
+
+    if (tool === 'create_or_update_file') {
+      const path = data.content?.path || data.path || '';
+      return `\u2705 Файл создан: ${path}`;
+    }
+
+    if (tool === 'create_pull_request') {
+      const url = data.html_url || '';
+      return url ? `\u2705 PR: ${url}` : raw.slice(0, 120);
+    }
+  } catch {
+    // Not JSON — fall through
+  }
+
+  // Default: first 2 lines
+  const lines = raw.split('\n').filter((l) => l.trim());
+  return lines.slice(0, 2).join('\n') || raw.slice(0, 120);
+}
+
 function getCurrentStep(agent: AgentType, events: PipelineEvent[], pipelineDone: boolean): number {
   const status = getAgentStatus(agent, events, pipelineDone);
   if (status === 'pending') return -1;
@@ -129,6 +183,7 @@ export function GroundedTree({ events, context, pipelineDone, task }: Props) {
           {AGENTS.map((agent) => {
             const status = getAgentStatus(agent.id, events, pipelineDone);
             const toolCalls = getToolCalls(agent.id, events);
+            const thinking = getAgentThinking(agent.id, events);
 
             return (
               <AgentNode
@@ -137,6 +192,7 @@ export function GroundedTree({ events, context, pipelineDone, task }: Props) {
                 status={status}
                 isActive={activeAgent === agent.id && !pipelineDone}
                 toolCalls={toolCalls}
+                thinkingText={thinking}
               />
             );
           })}
@@ -179,11 +235,13 @@ function AgentNode({
   status,
   isActive,
   toolCalls,
+  thinkingText,
 }: {
   agent: typeof AGENTS[number];
   status: 'pending' | 'running' | 'done';
   isActive: boolean;
   toolCalls: ReturnType<typeof getToolCalls>;
+  thinkingText: string;
 }) {
   const [expanded, setExpanded] = useState(true);
 
@@ -236,6 +294,11 @@ function AgentNode({
             />
           ))}
         </div>
+      )}
+
+      {/* Agent thinking stream */}
+      {expanded && thinkingText && (
+        <ThinkingStream text={thinkingText} isActive={isActive} agentNeon={agent.neon} />
       )}
     </div>
   );
@@ -300,7 +363,14 @@ function ToolCallNode({
             )}
           </div>
 
-          {/* Output preview */}
+          {/* Smart output summary */}
+          {!call.pending && call.output && (
+            <div className="mt-1 text-muted-foreground whitespace-pre-wrap">
+              {formatToolOutput(call.tool, call.output)}
+            </div>
+          )}
+
+          {/* Raw output (expandable) */}
           {showOutput && call.output && (
             <div className="mt-1.5 rounded border border-border/30 bg-[#0d1117] p-2 font-mono text-[10px] text-gray-400 max-h-32 overflow-y-auto whitespace-pre-wrap">
               {call.output}
@@ -308,6 +378,45 @@ function ToolCallNode({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Thinking Stream ──
+
+function ThinkingStream({ text, isActive, agentNeon }: { text: string; isActive: boolean; agentNeon: string }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(true);
+
+  // Auto-scroll the thinking text
+  useEffect(() => {
+    if (scrollRef.current && isActive) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [text, isActive]);
+
+  // Show last ~500 chars when collapsed
+  const preview = text.length > 100 ? '...' + text.slice(-100) : text;
+
+  return (
+    <div className="border-t border-border/20">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-1.5 px-3 py-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+      >
+        {isActive && <div className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ backgroundColor: agentNeon }} />}
+        <span>Рассуждения агента</span>
+        <span className="ml-auto">{expanded ? '▼' : '▶'}</span>
+      </button>
+      {expanded && (
+        <div
+          ref={scrollRef}
+          className="max-h-28 overflow-y-auto px-3 pb-2 text-[11px] text-muted-foreground/50 font-mono leading-relaxed whitespace-pre-wrap"
+        >
+          {text}
+          {isActive && <span className="inline-block w-1.5 h-3 ml-0.5 animate-pulse" style={{ backgroundColor: agentNeon }} />}
+        </div>
+      )}
     </div>
   );
 }

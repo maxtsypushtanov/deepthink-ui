@@ -10,6 +10,7 @@ export function PipelineView() {
   const context = usePipelineStore((s) => s.context);
   const events = usePipelineStore((s) => s.events);
   const error = usePipelineStore((s) => s.error);
+  const taskText = usePipelineStore((s) => s.taskText);
   const startPipeline = usePipelineStore((s) => s.startPipeline);
   const stopPipeline = usePipelineStore((s) => s.stopPipeline);
   const reset = usePipelineStore((s) => s.reset);
@@ -70,7 +71,7 @@ export function PipelineView() {
         events={events}
         context={context}
         pipelineDone={status === 'done' || status === 'error'}
-        task={context?.task || ''}
+        task={context?.task || taskText}
       />
     </div>
   );

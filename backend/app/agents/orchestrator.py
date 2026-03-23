@@ -73,8 +73,10 @@ class OrchestratorAgent(BaseAgent):
             ],
             strategy=self.reasoning_strategy,
         ):
-            if event.get("type") == "content_delta":
-                result += event.get("content", "")
+            if event.get("event") == "content_delta":
+                chunk = event.get("data", {}).get("content", "")
+                result += chunk
+                await self._emit_thinking(chunk)
 
         try:
             parsed = json.loads(result)

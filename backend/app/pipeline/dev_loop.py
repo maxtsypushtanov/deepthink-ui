@@ -60,8 +60,9 @@ async def run(
         for agent_name, agent in agents_in_order:
             await emit({"type": "agent_started", "agent": agent_name, "iteration": iteration})
 
-            # Wire event callback into MCP client so tool calls are streamed
+            # Wire event callback into MCP client and agent so events are streamed
             mcp_client.set_event_callback(emit, agent_name)
+            agent.set_event_callback(emit, agent_name)
 
             context = await agent.run(context)
 

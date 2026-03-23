@@ -7,6 +7,7 @@ const WS_BASE = API_BASE.replace(/^http/, 'ws') || `ws://localhost:8000`;
 interface PipelineStore {
   // State
   taskId: string | null;
+  taskText: string;
   context: DevLoopContext | null;
   events: PipelineEvent[];
   status: PipelineStatus;
@@ -23,13 +24,14 @@ let ws: WebSocket | null = null;
 
 export const usePipelineStore = create<PipelineStore>((set, get) => ({
   taskId: null,
+  taskText: '',
   context: null,
   events: [],
   status: 'idle',
   error: null,
 
   startPipeline: async (task, repo, maxIterations = 5) => {
-    set({ status: 'running', error: null, events: [], context: null });
+    set({ status: 'running', error: null, events: [], context: null, taskText: task });
 
     try {
       const resp = await fetch(`${API_BASE}/api/pipeline/run`, {
@@ -116,6 +118,6 @@ export const usePipelineStore = create<PipelineStore>((set, get) => ({
   reset: () => {
     ws?.close();
     ws = null;
-    set({ taskId: null, context: null, events: [], status: 'idle', error: null });
+    set({ taskId: null, taskText: '', context: null, events: [], status: 'idle', error: null });
   },
 }));

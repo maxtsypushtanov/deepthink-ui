@@ -92,8 +92,10 @@ class TesterAgent(BaseAgent):
             ],
             strategy=self.reasoning_strategy,
         ):
-            if event.get("type") == "content_delta":
-                test_code += event.get("content", "")
+            if event.get("event") == "content_delta":
+                chunk = event.get("data", {}).get("content", "")
+                test_code += chunk
+                await self._emit_thinking(chunk)
 
         # Write code changes + test into the sandbox and run pytest
         sandbox = await self.sandbox.fork()
@@ -128,8 +130,10 @@ class TesterAgent(BaseAgent):
             ],
             strategy=ReasoningStrategy.COT,
         ):
-            if event.get("type") == "content_delta":
-                analysis += event.get("content", "")
+            if event.get("event") == "content_delta":
+                chunk = event.get("data", {}).get("content", "")
+                analysis += chunk
+                await self._emit_thinking(chunk)
 
         try:
             parsed = json.loads(analysis)
