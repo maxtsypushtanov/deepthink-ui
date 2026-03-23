@@ -56,10 +56,11 @@ class OrchestratorAgent(BaseAgent):
             f"Decide: should we iterate again or are we done?"
         )
 
+        from app.core.config import settings
         from app.providers.registry import get_provider
         from app.reasoning.engine import ReasoningEngine
 
-        provider = get_provider("openrouter")
+        provider = get_provider("openrouter", settings.openrouter_api_key)
         engine = ReasoningEngine(provider=provider, model=self.model)
 
         result = ""

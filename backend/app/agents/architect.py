@@ -79,10 +79,11 @@ class ArchitectAgent(BaseAgent):
         )
 
         # Use the reasoning engine via the provider
+        from app.core.config import settings
         from app.providers.registry import get_provider
         from app.reasoning.engine import ReasoningEngine
 
-        provider = get_provider("openrouter")
+        provider = get_provider("openrouter", settings.openrouter_api_key)
         engine = ReasoningEngine(provider=provider, model=self.model)
 
         result = ""

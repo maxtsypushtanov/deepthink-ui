@@ -74,10 +74,11 @@ class TesterAgent(BaseAgent):
             f"Output ONLY the Python code, no markdown fences."
         )
 
+        from app.core.config import settings
         from app.providers.registry import get_provider
         from app.reasoning.engine import ReasoningEngine
 
-        provider = get_provider("openrouter")
+        provider = get_provider("openrouter", settings.openrouter_api_key)
         engine = ReasoningEngine(provider=provider, model=self.model)
 
         # Generate test code via Best-of-N
