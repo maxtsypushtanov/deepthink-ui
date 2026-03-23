@@ -6,3 +6,5 @@ pydantic==2.10.4
 pydantic-settings==2.7.1
 aiosqlite==0.20.0
 sse-starlette==2.2.1
+mcp>=1.0.0
+e2b>=1.0.0
