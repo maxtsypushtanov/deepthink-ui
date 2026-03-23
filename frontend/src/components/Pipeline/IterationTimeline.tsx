@@ -71,15 +71,15 @@ export function IterationTimeline({ context, events }: Props) {
                 >
                   {num}
                 </div>
-                <span className="text-sm font-medium">Iteration {num}</span>
+                <span className="text-sm font-medium">Итерация {num}</span>
                 {iterComplete && (
                   <span className="ml-auto rounded bg-green-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-green-400 border border-green-500/20">
-                    Complete
+                    Готово
                   </span>
                 )}
                 {isCurrentIteration && !iterComplete && (
                   <span className="ml-auto rounded bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-yellow-400 border border-yellow-500/20">
-                    Running
+                    Выполняется
                   </span>
                 )}
               </div>
