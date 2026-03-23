@@ -80,7 +80,7 @@ class BaseLLMProvider(ABC):
         req.stream = False
         url = f"{self.base_url}/chat/completions"
         body = self._build_body(req)
-        logger.debug("POST %s\nHeaders: %s\nBody: %s", url, self._headers(), json.dumps(body, ensure_ascii=False, default=str)[:2000])
+        logger.warning("[LLM REQUEST] POST %s | model=%s | body=%s", url, body.get("model"), json.dumps(body, ensure_ascii=False, default=str)[:2000])
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, headers=self._headers(), json=body)
             if resp.status_code >= 400:
@@ -105,7 +105,7 @@ class BaseLLMProvider(ABC):
         req.stream = True
         url = f"{self.base_url}/chat/completions"
         body = self._build_body(req)
-        logger.debug("POST (stream) %s\nHeaders: %s\nBody: %s", url, self._headers(), json.dumps(body, ensure_ascii=False, default=str)[:2000])
+        logger.warning("[LLM REQUEST] POST (stream) %s | model=%s | body=%s", url, body.get("model"), json.dumps(body, ensure_ascii=False, default=str)[:2000])
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream("POST", url, headers=self._headers(), json=body) as resp:
                 if resp.status_code >= 400:
