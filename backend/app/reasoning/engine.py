@@ -256,6 +256,7 @@ class ReasoningEngine:
             session_context.last_persona = persona
             return persona
 
+        session_context.conversation_turn += 1
         return session_context.last_persona
 
     # ── Static helpers ──
@@ -327,10 +328,6 @@ class ReasoningEngine:
         else:
             domain = await self._detect_domain(messages)
 
-        # Update session context if provided
-        if session_context:
-            session_context.update(domain)
-
         # Build dynamic persona and cache in session
         persona = PersonaBuilder.build(domain, strategy.value, session_context)
         if session_context:
@@ -394,15 +391,14 @@ class ReasoningEngine:
             },
         }
 
-        yield {"event": "done", "data": {}}
 
     # ── Strategy: Passthrough (no reasoning) ──
 
     async def _run_passthrough(self, messages: list[LLMMessage], persona: str) -> AsyncIterator[dict]:
         if messages and messages[0].role == "system":
-            persona_messages = messages  # Already has system prompt from retune
+            persona_messages = list(messages)
         else:
-            persona_messages = [LLMMessage(role="system", content=persona)] + messages
+            persona_messages = [LLMMessage(role="system", content=persona)] + list(messages)
         req = LLMRequest(messages=persona_messages, model=self.model)
         async for chunk in self.provider.stream(req):
             if chunk.content:
@@ -412,9 +408,10 @@ class ReasoningEngine:
 
     async def _run_cot(self, messages: list[LLMMessage], steps: list[ThinkingStep], persona: str) -> AsyncIterator[dict]:
         if messages and messages[0].role == "system":
-            cot_messages = messages  # Already has system prompt from retune
+            cot_messages = list(messages)
+            cot_messages[0] = LLMMessage(role="system", content=cot_messages[0].content + "\n\n" + COT_SYSTEM_PROMPT)
         else:
-            cot_messages = [LLMMessage(role="system", content=persona)] + messages
+            cot_messages = [LLMMessage(role="system", content=persona + "\n\n" + COT_SYSTEM_PROMPT)] + list(messages)
         req = LLMRequest(messages=cot_messages, model=self.model, temperature=0.3)
 
         step_start = time.monotonic()
@@ -572,13 +569,13 @@ class ReasoningEngine:
 
         # Parse vote or default to first
         best_idx = self._parse_vote(vote_resp.content, len(candidates))
-        best_answer = candidates[best_idx]
+        best_answer = self._strip_thinking_tags(candidates[best_idx])
 
         vote_ms = int((time.monotonic() - vote_start) * 1000)
         steps.append(ThinkingStep(
             step_number=n + 2,
             strategy="best_of_n",
-            content=f"Selected candidate {best_idx + 1} as best answer",
+            content=f"Выбран вариант {best_idx + 1} как лучший ответ",
             duration_ms=vote_ms,
             metadata={"type": "vote", "winner": best_idx + 1, "vote_reasoning": vote_resp.content[:300]},
         ))
@@ -681,13 +678,14 @@ class ReasoningEngine:
         }
 
         synthesis = await self._synthesize_from_tree(user_query, best_path)
+        synthesis = self._strip_thinking_tags(synthesis)
         for chunk in self._chunk_text(synthesis):
             yield {"event": "content_delta", "data": {"content": chunk}}
 
         steps.append(ThinkingStep(
             step_number=step_num + 2,
             strategy="tree_of_thoughts",
-            content="Synthesized answer from best reasoning path",
+            content="Синтез ответа из лучшего пути рассуждений",
             metadata={
                 "type": "synthesis",
                 "best_path": [b["id"] for b in best_path],
