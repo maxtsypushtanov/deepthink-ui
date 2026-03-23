@@ -7,6 +7,7 @@ import {
   ChevronDown, ChevronRight, Zap, Settings,
 } from 'lucide-react';
 import type { AgentType, PipelineEvent, DevLoopContext } from '@/types/pipeline';
+import { ReasoningTreePanel } from './ReasoningTree';
 
 // ── Config ──
 
@@ -109,7 +110,7 @@ function formatOutput(tool: string, raw: string): string {
 
 interface FeedItem {
   id: string;
-  kind: 'agent_start' | 'tool_group' | 'thinking' | 'result' | 'done' | 'error';
+  kind: 'agent_start' | 'tool_group' | 'thinking' | 'gtot_tree' | 'result' | 'done' | 'error';
   agent?: AgentType;
   toolCalls?: ToolCall[];
   thinking?: string;
@@ -126,6 +127,11 @@ function buildFeed(events: PipelineEvent[], pipelineDone: boolean): FeedItem[] {
     if (status === 'pending') continue;
 
     items.push({ id: `start-${agent}`, kind: 'agent_start', agent, status });
+
+    // GToT tree for architect
+    if (agent === 'architect' && events.some((e) => e.type === 'gtot_plan')) {
+      items.push({ id: `gtot-${agent}`, kind: 'gtot_tree', agent, status });
+    }
 
     const calls = collectToolCalls(agent, events);
     if (calls.length > 0) {
@@ -205,6 +211,8 @@ function FeedItemView({ item, events }: { item: FeedItem; events: PipelineEvent[
       return <ToolGroupItem agent={item.agent!} calls={item.toolCalls!} status={item.status} />;
     case 'thinking':
       return <ThinkingItem agent={item.agent!} text={item.thinking!} status={item.status} />;
+    case 'gtot_tree':
+      return <ReasoningTreePanel events={events} />;
     case 'done':
       return <DoneItem text={item.text!} />;
     case 'error':

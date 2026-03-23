@@ -39,23 +39,19 @@ export interface DevLoopContext {
   history: IterationSnapshot[];
 }
 
-export interface ToolCallEvent {
-  type: 'tool_call';
-  agent: AgentType;
+// GToT tree node for visualization
+export interface GToTNode {
+  id: string;
   tool: string;
-  input: string;
-  call_id: string;
-  timestamp: string;
-}
-
-export interface ToolResultEvent {
-  type: 'tool_result';
-  agent: AgentType;
-  tool: string;
-  call_id: string;
-  output: string;
-  success: boolean;
-  timestamp: string;
+  args: Record<string, unknown>;
+  reasoning: string;
+  result_preview?: string;
+  score?: number;
+  score_reason?: string;
+  status: 'pending' | 'running' | 'completed' | 'scored' | 'pruned' | 'failed';
+  latency_ms?: number;
+  parent_id?: string;
+  children: string[];
 }
 
 export type PipelineEvent = {
@@ -69,6 +65,14 @@ export type PipelineEvent = {
     | 'tool_result'
     | 'agent_thinking'
     | 'strategy_selected'
+    // GToT events
+    | 'gtot_plan'
+    | 'gtot_node_start'
+    | 'gtot_node_result'
+    | 'gtot_node_scored'
+    | 'gtot_pruned'
+    | 'gtot_expand'
+    | 'gtot_complete'
     | 'error';
   agent?: AgentType;
   iteration?: number;
@@ -84,6 +88,18 @@ export type PipelineEvent = {
   issues_count?: number;
   status?: string;
   message?: string;
+  // GToT fields
+  node_id?: string;
+  parent_id?: string;
+  planned_nodes?: Array<{ id: string; tool: string; args: Record<string, unknown>; reasoning: string }>;
+  new_nodes?: Array<{ id: string; tool: string; args: Record<string, unknown>; reasoning: string }>;
+  result_preview?: string;
+  latency_ms?: number;
+  score?: number;
+  reason?: string;
+  total_nodes?: number;
+  best_score?: number;
+  best_path?: string[];
   data?: Record<string, unknown>;
   timestamp: string;
 };
