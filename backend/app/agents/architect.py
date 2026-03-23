@@ -83,7 +83,7 @@ class ArchitectAgent(BaseAgent):
         from app.providers.registry import get_provider
         from app.reasoning.engine import ReasoningEngine
 
-        provider = get_provider("custom", settings.custom_api_key)
+        provider = get_provider("custom", settings.custom_api_key, settings.custom_base_url)
         engine = ReasoningEngine(provider=provider, model=self.model)
 
         from app.providers.base import LLMMessage
