@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { usePipelineStore } from '@/stores/pipelineStore';
 import { cn } from '@/lib/utils';
-import { Play, Square, RotateCcw, AlertCircle } from 'lucide-react';
-import { GroundedTree } from './GroundedTree';
+import { Play, Square, RotateCcw, AlertCircle, Zap } from 'lucide-react';
+import { AgentFeed } from './AgentFeed';
 import { PRBadge } from './PRBadge';
 
 export function PipelineView() {
@@ -22,13 +22,11 @@ export function PipelineView() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold">Пайплайн</h2>
-        {context && (
-          <span className="text-xs text-muted-foreground truncate max-w-md">
-            {context.task}
-          </span>
-        )}
+      <div className="flex items-center gap-3 border-b border-border px-4 py-2.5">
+        <Zap className="h-3.5 w-3.5 text-primary" strokeWidth={1.5} />
+        <span className="text-xs text-muted-foreground truncate max-w-md">
+          {context?.task || taskText}
+        </span>
         <div className="ml-auto flex items-center gap-2">
           {status === 'running' && (
             <button
@@ -53,8 +51,8 @@ export function PipelineView() {
 
       {/* Error banner */}
       {error && (
-        <div className="flex items-center gap-2 border-b border-red-500/30 bg-red-500/10 px-4 py-2.5 text-xs text-red-400">
-          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+        <div className="flex items-center gap-2 border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-400">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
           {error}
         </div>
       )}
@@ -66,8 +64,8 @@ export function PipelineView() {
         </div>
       )}
 
-      {/* Grounded Tree visualization */}
-      <GroundedTree
+      {/* Agent feed */}
+      <AgentFeed
         events={events}
         context={context}
         pipelineDone={status === 'done' || status === 'error'}
@@ -109,7 +107,6 @@ function IdleForm({ onStart }: { onStart: (task: string, repo: string, max?: num
           </p>
         </div>
 
-        {/* Task */}
         <div className="space-y-1.5">
           <label htmlFor="pipeline-task" className="text-xs font-medium text-muted-foreground">
             Описание задачи
@@ -128,7 +125,6 @@ function IdleForm({ onStart }: { onStart: (task: string, repo: string, max?: num
           />
         </div>
 
-        {/* Repo */}
         <div className="space-y-1.5">
           <label htmlFor="pipeline-repo" className="text-xs font-medium text-muted-foreground">
             GitHub Репозиторий
@@ -146,7 +142,6 @@ function IdleForm({ onStart }: { onStart: (task: string, repo: string, max?: num
           />
         </div>
 
-        {/* Max iterations */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <label htmlFor="pipeline-iters" className="text-xs font-medium text-muted-foreground">
@@ -165,7 +160,6 @@ function IdleForm({ onStart }: { onStart: (task: string, repo: string, max?: num
           />
         </div>
 
-        {/* Submit */}
         <button
           type="submit"
           disabled={!canSubmit}
@@ -176,7 +170,7 @@ function IdleForm({ onStart }: { onStart: (task: string, repo: string, max?: num
               : 'bg-muted text-muted-foreground cursor-not-allowed',
           )}
         >
-          <Play className="h-4 w-4" />
+          <Play className="h-4 w-4" strokeWidth={1.5} />
           {submitting ? 'Запуск...' : 'Запустить'}
         </button>
       </form>
