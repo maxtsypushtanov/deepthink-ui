@@ -1,13 +1,19 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
+import { PipelineView } from '@/components/Pipeline/PipelineView';
 import { useThemeStore } from '@/stores/themeStore';
 import { useChatStore } from '@/stores/chatStore';
+import { cn } from '@/lib/utils';
+import { MessageSquare, GitBranch } from 'lucide-react';
+
+type Tab = 'chat' | 'pipeline';
 
 export default function App() {
   const theme = useThemeStore((s) => s.mode);
   const loadConversations = useChatStore((s) => s.loadConversations);
   const createConversation = useChatStore((s) => s.createConversation);
+  const [activeTab, setActiveTab] = useState<Tab>('chat');
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -35,7 +41,57 @@ export default function App() {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background">
       <Sidebar />
-      <ChatArea />
+
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Tab bar */}
+        <div className="flex items-center border-b border-border bg-card/50 px-2">
+          <TabButton
+            active={activeTab === 'chat'}
+            onClick={() => setActiveTab('chat')}
+            icon={<MessageSquare className="h-3.5 w-3.5" />}
+            label="Chat"
+          />
+          <TabButton
+            active={activeTab === 'pipeline'}
+            onClick={() => setActiveTab('pipeline')}
+            icon={<GitBranch className="h-3.5 w-3.5" />}
+            label="Pipeline"
+          />
+        </div>
+
+        {/* Tab content */}
+        <div className="flex-1 overflow-hidden">
+          {activeTab === 'chat' && <ChatArea />}
+          {activeTab === 'pipeline' && <PipelineView />}
+        </div>
+      </div>
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors',
+        active
+          ? 'border-primary text-foreground'
+          : 'border-transparent text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
