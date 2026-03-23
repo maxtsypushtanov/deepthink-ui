@@ -53,8 +53,8 @@ interface ChatStore {
 }
 
 const DEFAULT_SETTINGS: ChatSettings = {
-  model: 'openai/gpt-4o-mini',
-  provider: 'openrouter',
+  model: 'openai/gpt-oss-120b',
+  provider: 'custom',
   strategy: 'auto',
   temperature: 0.7,
   maxTokens: 4096,

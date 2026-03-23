@@ -325,44 +325,12 @@ async def save_provider(req: ProviderSettingsRequest):
 # ── Models list (per provider) ──
 
 KNOWN_MODELS = {
-    "openrouter": [
-        {"id": "openai/gpt-4o-mini", "name": "GPT-4o Mini", "context": 128000},
-        {"id": "openai/gpt-4o", "name": "GPT-4o", "context": 128000},
-        {"id": "anthropic/claude-3.5-sonnet", "name": "Claude 3.5 Sonnet", "context": 200000},
-        {"id": "anthropic/claude-3-haiku", "name": "Claude 3 Haiku", "context": 200000},
-        {"id": "google/gemini-2.0-flash-exp:free", "name": "Gemini 2.0 Flash (free)", "context": 1000000},
-        {"id": "meta-llama/llama-3.1-70b-instruct", "name": "Llama 3.1 70B", "context": 131072},
-        {"id": "mistralai/mistral-large-latest", "name": "Mistral Large", "context": 128000},
-        {"id": "qwen/qwen-2.5-72b-instruct", "name": "Qwen 2.5 72B", "context": 131072},
-        {"id": "deepseek/deepseek-r1", "name": "DeepSeek R1", "context": 64000},
-        {"id": "deepseek/deepseek-chat", "name": "DeepSeek V3", "context": 64000},
+    "custom": [
+        {"id": "openai/gpt-oss-120b", "name": "GPT-OSS 120B", "context": 131072},
+        {"id": "zai-org/GLM-4.7", "name": "GLM-4.7", "context": 131072},
+        {"id": "zai-org/GLM-4.7-Flash", "name": "GLM-4.7 Flash", "context": 131072},
+        {"id": "zai-org/GLM-4.6", "name": "GLM-4.6", "context": 131072},
     ],
-    "deepseek": [
-        {"id": "deepseek-chat", "name": "DeepSeek V3", "context": 64000},
-        {"id": "deepseek-reasoner", "name": "DeepSeek R1", "context": 64000},
-    ],
-    "cloudru": [
-        # GigaChat family
-        {"id": "GigaChat", "name": "GigaChat", "context": 32768},
-        {"id": "GigaChat-Plus", "name": "GigaChat Plus", "context": 32768},
-        {"id": "GigaChat-Pro", "name": "GigaChat Pro", "context": 32768},
-        {"id": "GigaChat-Max", "name": "GigaChat Max", "context": 32768},
-        {"id": "GigaChat-2", "name": "GigaChat 2", "context": 32768},
-        {"id": "GigaChat-2-Max", "name": "GigaChat 2 Max", "context": 32768},
-        # Llama models
-        {"id": "llama-3.3-70b", "name": "Llama 3.3 70B", "context": 131072},
-        {"id": "llama-3.1-8b", "name": "Llama 3.1 8B", "context": 131072},
-        {"id": "llama-3.1-70b", "name": "Llama 3.1 70B", "context": 131072},
-        {"id": "llama-3.1-405b", "name": "Llama 3.1 405B", "context": 131072},
-        # DeepSeek models
-        {"id": "deepseek-r1", "name": "DeepSeek R1", "context": 64000},
-        {"id": "deepseek-v3", "name": "DeepSeek V3", "context": 64000},
-        # Qwen models
-        {"id": "qwen-2.5-72b", "name": "Qwen 2.5 72B", "context": 131072},
-        {"id": "qwen-2.5-coder-32b", "name": "Qwen 2.5 Coder 32B", "context": 131072},
-        {"id": "qwen-max", "name": "Qwen Max", "context": 32768},
-    ],
-    "custom": [],
 }
 
 

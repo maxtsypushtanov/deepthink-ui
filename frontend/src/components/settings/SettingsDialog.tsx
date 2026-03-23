@@ -11,25 +11,10 @@ interface Props {
 }
 
 const PROVIDER_META: Record<string, { label: string; description: string; defaultUrl: string }> = {
-  openrouter: {
-    label: 'OpenRouter',
-    description: 'Доступ к 200+ моделям через один API-ключ',
-    defaultUrl: 'https://openrouter.ai/api/v1',
-  },
-  deepseek: {
-    label: 'DeepSeek',
-    description: 'DeepSeek V3 и R1 с нативным рассуждением',
-    defaultUrl: 'https://api.deepseek.com',
-  },
-  cloudru: {
-    label: 'Cloud.ru',
-    description: 'Foundation Models на российских серверах',
-    defaultUrl: 'https://api.cloud.ru/v1',
-  },
   custom: {
-    label: 'Свой эндпоинт',
-    description: 'Любой OpenAI-совместимый API',
-    defaultUrl: 'http://localhost:11434/v1',
+    label: 'API эндпоинт',
+    description: 'OpenAI-совместимый API (Cloud.ru Foundation Models)',
+    defaultUrl: 'https://foundation-models.api.cloud.ru/v1',
   },
 };
 
