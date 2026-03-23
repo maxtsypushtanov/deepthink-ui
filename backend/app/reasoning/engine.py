@@ -242,22 +242,18 @@ class ReasoningEngine:
     async def retune_if_needed(
         self,
         messages: list[LLMMessage],
-        strategy: str,
         session_context: SessionContext,
     ) -> str:
-        """Re-detect domain and rebuild persona. Always returns a persona string."""
-        # Always build on first call or when interval reached
-        if not session_context.last_persona or session_context.needs_retune():
+        """Re-detect domain if needed. Returns the detected/cached domain."""
+        if not session_context.detected_domains or session_context.needs_retune():
             recent = messages[-6:] if len(messages) > 6 else messages
             domain = await self._detect_domain(recent)
             session_context.update(domain)
             session_context.last_retune_turn = session_context.conversation_turn
-            persona = PersonaBuilder.build(domain, strategy, session_context)
-            session_context.last_persona = persona
-            return persona
+            return domain
 
         session_context.conversation_turn += 1
-        return session_context.last_persona
+        return session_context.dominant_domain
 
     # ── Static helpers ──
 
@@ -328,10 +324,17 @@ class ReasoningEngine:
         else:
             domain = await self._detect_domain(messages)
 
-        # Build dynamic persona and cache in session
+        # Build persona with the RESOLVED strategy (not "auto")
         persona = PersonaBuilder.build(domain, strategy.value, session_context)
         if session_context:
             session_context.last_persona = persona
+
+        # Inject/update system prompt in messages
+        if messages and messages[0].role == "system":
+            messages[0] = LLMMessage(role="system", content=persona)
+        else:
+            messages.insert(0, LLMMessage(role="system", content=persona))
+
         label = PersonaBuilder.get_label(strategy.value)
         preview = PersonaBuilder.get_preview(domain)
 
@@ -343,6 +346,7 @@ class ReasoningEngine:
                 "domain": domain,
                 "label": label,
                 "persona_preview": preview,
+                "persona_detail": f"{DOMAIN_LABELS.get(domain, domain)} · {label}",
             },
         }
 

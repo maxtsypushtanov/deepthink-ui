@@ -86,15 +86,9 @@ async def chat(req: ChatRequest):
         _session_contexts[conversation_id] = SessionContext()
     session_context = _session_contexts[conversation_id]
 
-    # Dynamic re-tuning: detect domain and build/refresh persona
-    refreshed_persona = await engine.retune_if_needed(
-        messages, req.reasoning_strategy, session_context,
-    )
-    # Inject/replace system prompt at the start of messages
-    if messages and messages[0].role == "system":
-        messages[0] = LLMMessage(role="system", content=refreshed_persona)
-    else:
-        messages.insert(0, LLMMessage(role="system", content=refreshed_persona))
+    # Detect/cache domain for this turn
+    await engine.retune_if_needed(messages, session_context)
+    # Persona injection happens inside engine.run() after strategy resolution
 
     async def event_stream():
         full_content = ""

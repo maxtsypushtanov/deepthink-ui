@@ -6,7 +6,6 @@ import { ModelSelector } from './ModelSelector';
 import { StreamingMessage } from './StreamingMessage';
 import { EmptyState } from './EmptyState';
 import { PersonaIndicator } from '@/components/reasoning/PersonaIndicator';
-import type { StrategySelectedEvent } from '@/types';
 
 export function ChatArea() {
   const messages = useChatStore((s) => s.messages);
@@ -15,14 +14,11 @@ export function ChatArea() {
   const conversations = useChatStore((s) => s.conversations);
   const error = useChatStore((s) => s.error);
   const clearError = useChatStore((s) => s.clearError);
+  const lastPersona = useChatStore((s) => s.lastPersona);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastPersonaRef = useRef<StrategySelectedEvent | null>(null);
 
-  if (streaming.currentPersona) {
-    lastPersonaRef.current = streaming.currentPersona;
-  }
-  const displayPersona = streaming.currentPersona || lastPersonaRef.current;
+  const displayPersona = streaming.currentPersona || lastPersona;
   const activeTitle = conversations.find((c) => c.id === activeId)?.title;
 
   useEffect(() => {

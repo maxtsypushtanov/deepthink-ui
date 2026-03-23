@@ -72,6 +72,7 @@ export interface StrategySelectedEvent {
   domain: string;
   label: string;
   persona_preview: string;
+  persona_detail?: string;
 }
 
 export type ThemeMode = 'dark' | 'light';

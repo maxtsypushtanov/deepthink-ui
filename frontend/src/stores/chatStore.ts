@@ -31,6 +31,7 @@ interface ChatStore {
   streaming: StreamingState;
   settings: ChatSettings;
   error: string | null;
+  lastPersona: StrategySelectedEvent | null;
 
   // Actions
   loadConversations: () => Promise<void>;
@@ -101,6 +102,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
   settings: DEFAULT_SETTINGS,
   error: null,
+  lastPersona: null,
 
   loadConversations: async () => {
     try {
@@ -112,7 +114,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   selectConversation: async (id: string) => {
-    set({ activeConversationId: id });
+    set({ activeConversationId: id, lastPersona: null });
     try {
       const msgs = await api.getMessages(id);
       set({ messages: msgs });
@@ -212,6 +214,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 strategyUsed: data.strategy,
                 currentPersona: data as StrategySelectedEvent,
               },
+              lastPersona: data as StrategySelectedEvent,
             }));
             break;
 
@@ -383,6 +386,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 strategyUsed: data.strategy,
                 currentPersona: data as StrategySelectedEvent,
               },
+              lastPersona: data as StrategySelectedEvent,
             }));
             break;
 
