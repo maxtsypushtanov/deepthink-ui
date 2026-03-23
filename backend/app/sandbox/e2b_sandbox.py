@@ -39,9 +39,9 @@ class E2BSandboxClient(SandboxClient):
         _set_api_key(self._api_key)
         self._sandbox = Sandbox.create(template=self._template)
         if requirements_txt.strip():
-            self._sandbox.files.write("/tmp/requirements.txt", requirements_txt)
+            self._sandbox.files.write("/home/user/requirements.txt", requirements_txt)
             try:
-                self._sandbox.commands.run("pip install -r /tmp/requirements.txt", timeout=120)
+                self._sandbox.commands.run("pip install -r /home/user/requirements.txt", timeout=120)
             except CommandExitException as exc:
                 logger.error("pip install failed: %s", exc.stderr)
                 raise RuntimeError(f"Failed to install dependencies: {exc.stderr}") from exc
@@ -61,10 +61,10 @@ class E2BSandboxClient(SandboxClient):
         """Write code to a file and run it with Python."""
         if self._sandbox is None:
             raise RuntimeError("Sandbox not initialized")
-        self._sandbox.files.write("/tmp/run.py", code)
+        self._sandbox.files.write("/home/user/run.py", code)
         t0 = time.perf_counter_ns()
         try:
-            proc = self._sandbox.commands.run("python /tmp/run.py", timeout=timeout)
+            proc = self._sandbox.commands.run("python /home/user/run.py", timeout=timeout)
             duration_ms = (time.perf_counter_ns() - t0) // 1_000_000
             return SandboxResult(
                 stdout=proc.stdout,
@@ -81,13 +81,42 @@ class E2BSandboxClient(SandboxClient):
                 duration_ms=duration_ms,
             )
 
+    async def run_command(self, cmd: str, timeout: int = 60) -> SandboxResult:
+        """Run a shell command directly inside the sandbox."""
+        if self._sandbox is None:
+            raise RuntimeError("Sandbox not initialized")
+        t0 = time.perf_counter_ns()
+        try:
+            proc = self._sandbox.commands.run(cmd, timeout=timeout)
+            duration_ms = (time.perf_counter_ns() - t0) // 1_000_000
+            return SandboxResult(
+                stdout=proc.stdout,
+                stderr=proc.stderr,
+                exit_code=proc.exit_code,
+                duration_ms=duration_ms,
+            )
+        except CommandExitException as exc:
+            duration_ms = (time.perf_counter_ns() - t0) // 1_000_000
+            return SandboxResult(
+                stdout=exc.stdout,
+                stderr=exc.stderr,
+                exit_code=exc.exit_code,
+                duration_ms=duration_ms,
+            )
+
+    async def write_file(self, path: str, content: str) -> None:
+        """Write a file inside the sandbox."""
+        if self._sandbox is None:
+            raise RuntimeError("Sandbox not initialized")
+        self._sandbox.files.write(path, content)
+
     async def update_base(self, new_deps: str) -> None:
         """Install additional dependencies into the base sandbox."""
         if self._sandbox is None:
             raise RuntimeError("Base sandbox not initialized")
-        self._sandbox.files.write("/tmp/extra_requirements.txt", new_deps)
+        self._sandbox.files.write("/home/user/extra_requirements.txt", new_deps)
         try:
-            self._sandbox.commands.run("pip install -r /tmp/extra_requirements.txt", timeout=120)
+            self._sandbox.commands.run("pip install -r /home/user/extra_requirements.txt", timeout=120)
         except CommandExitException as exc:
             raise RuntimeError(f"Failed to install extra deps: {exc.stderr}") from exc
         logger.info("Updated base sandbox with additional dependencies")

@@ -35,6 +35,16 @@ class SandboxClient(ABC):
         ...
 
     @abstractmethod
+    async def run_command(self, cmd: str, timeout: int = 60) -> SandboxResult:
+        """Run a shell command inside the sandbox and return the result."""
+        ...
+
+    @abstractmethod
+    async def write_file(self, path: str, content: str) -> None:
+        """Write a file inside the sandbox."""
+        ...
+
+    @abstractmethod
     async def destroy(self) -> None:
         """Tear down this sandbox and release resources."""
         ...

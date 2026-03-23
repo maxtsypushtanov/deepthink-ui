@@ -100,18 +100,13 @@ class TesterAgent(BaseAgent):
         try:
             for change in context.code_changes:
                 if change.action != "delete":
-                    await sandbox.execute(
-                        f"import pathlib; p = pathlib.Path('/workspace/{change.file}'); "
-                        f"p.parent.mkdir(parents=True, exist_ok=True); "
-                        f"p.write_text({repr(change.content)})"
-                    )
+                    await sandbox.run_command(f"mkdir -p /home/user/workspace/$(dirname {change.file})")
+                    await sandbox.write_file(f"/home/user/workspace/{change.file}", change.content)
 
-            await sandbox.execute(
-                f"import pathlib; pathlib.Path('/workspace/test_changes.py').write_text({repr(test_code)})"
-            )
+            await sandbox.write_file("/home/user/workspace/test_changes.py", test_code)
 
-            result = await sandbox.execute(
-                "cd /workspace && python -m pytest test_changes.py -v --tb=short 2>&1",
+            result = await sandbox.run_command(
+                "cd /home/user/workspace && python -m pytest test_changes.py -v --tb=short 2>&1",
                 timeout=120,
             )
             context.test_results = f"exit_code={result.exit_code}\n\nSTDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}"
