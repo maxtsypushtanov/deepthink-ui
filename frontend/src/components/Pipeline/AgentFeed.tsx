@@ -4,7 +4,7 @@ import {
   Building2, Code2, FlaskConical, Cpu,
   Search, FileText, FilePlus, GitCommit, GitPullRequest, Terminal,
   CheckCircle, XCircle, Loader2,
-  ChevronDown, ChevronRight, Zap, Send,
+  ChevronDown, ChevronRight, Zap, Settings,
 } from 'lucide-react';
 import type { AgentType, PipelineEvent, DevLoopContext } from '@/types/pipeline';
 
@@ -176,11 +176,14 @@ export function AgentFeed({ events, context, pipelineDone, task, onNewRun }: Pro
       {/* Feed */}
       <div ref={feedRef} className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl px-4 py-6 space-y-3">
-          {/* Task header */}
+          {/* Task header + strategy badge */}
           <div className="flex items-start gap-3 pb-3 border-b border-border/30">
             <Zap className="h-4 w-4 shrink-0 text-primary mt-0.5" strokeWidth={1.5} />
-            <div>
-              <div className="text-xs text-muted-foreground">Задача</div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Задача</span>
+                <StrategyBadge events={events} />
+              </div>
               <div className="text-sm font-medium text-foreground">{task}</div>
             </div>
           </div>
@@ -387,5 +390,32 @@ function ErrorItem({ text }: { text: string }) {
       <XCircle className="h-4 w-4 text-red-400" strokeWidth={1.5} />
       <span className="text-sm font-medium text-red-400">{text}</span>
     </div>
+  );
+}
+
+// ── Strategy Badge ──
+
+const STRATEGY_CONFIG: Record<string, { Icon: typeof Zap; label: string; color: string; bg: string; border: string }> = {
+  simple: { Icon: Zap, label: 'Простая задача', color: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/20' },
+  medium: { Icon: Settings, label: 'Средняя задача', color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/20' },
+  complex: { Icon: FlaskConical, label: 'Сложная задача', color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/20' },
+};
+
+function StrategyBadge({ events }: { events: PipelineEvent[] }) {
+  const strategyEvent = events.find((e) => e.type === 'strategy_selected');
+  if (!strategyEvent) return null;
+
+  const complexity = strategyEvent.complexity || 'medium';
+  const cfg = STRATEGY_CONFIG[complexity] || STRATEGY_CONFIG.medium;
+  const Icon = cfg.Icon;
+
+  return (
+    <span className={cn(
+      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium',
+      cfg.bg, cfg.border, cfg.color,
+    )}>
+      <Icon className="h-2.5 w-2.5" strokeWidth={1.5} />
+      {cfg.label}
+    </span>
   );
 }

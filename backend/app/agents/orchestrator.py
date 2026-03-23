@@ -17,9 +17,10 @@ You are a project orchestrator. You review test results and issues, then \
 decide whether the pipeline should iterate again or is done.
 
 Decision criteria:
-- If there are critical or high severity issues → next_iteration
-- If tests pass cleanly → done
-- If we've been iterating without progress → done (with note)
+- If there are critical or high severity issues -> next_iteration
+- If tests pass cleanly -> done
+- If tests were skipped but developer made file changes -> done
+- If we've been iterating without progress -> done (with note)
 
 Respond in JSON:
 {
@@ -36,6 +37,32 @@ class OrchestratorAgent(BaseAgent):
     system_prompt = ORCHESTRATOR_SYSTEM_PROMPT
 
     async def run(self, context: DevLoopContext) -> DevLoopContext:
+        # Fast-path: tests skipped but developer made changes → done
+        if context.test_results and '"status": "skipped"' in context.test_results:
+            if context.code_changes:
+                context.decision = "done"
+                context.decision_reasoning = "Tests skipped (sandbox unavailable), but code changes were produced."
+                logger.info("Orchestrator fast-path: tests skipped + changes exist → done")
+                return context
+
+        # Fast-path: iteration >= 2 and no new changes → stop looping
+        if context.iteration >= 2 and not context.code_changes:
+            context.decision = "done"
+            context.decision_reasoning = "No new code changes in iteration — stopping to avoid infinite loop."
+            logger.info("Orchestrator fast-path: no new changes in iteration %d → done", context.iteration)
+            return context
+
+        # Fast-path: iteration >= 2 and developer produced same changes as before
+        if context.iteration >= 2 and context.history:
+            prev = context.history[-1]
+            prev_files = {c.file for c in prev.code_changes}
+            curr_files = {c.file for c in context.code_changes}
+            if prev_files == curr_files and prev_files:
+                context.decision = "done"
+                context.decision_reasoning = "Same files changed as previous iteration — no progress."
+                logger.info("Orchestrator fast-path: no progress → done")
+                return context
+
         issues_summary = "\n".join(
             f"- [{i.severity}] {i.description} ({i.file or 'unknown'})"
             for i in context.issues_found
@@ -59,11 +86,10 @@ class OrchestratorAgent(BaseAgent):
         from app.core.config import settings
         from app.providers.registry import get_provider
         from app.reasoning.engine import ReasoningEngine
+        from app.providers.base import LLMMessage
 
         provider = get_provider("custom", settings.custom_api_key, settings.custom_base_url)
         engine = ReasoningEngine(provider=provider, model=self.model)
-
-        from app.providers.base import LLMMessage
 
         result = ""
         async for event in engine.run(

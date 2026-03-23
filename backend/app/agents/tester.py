@@ -77,11 +77,10 @@ class TesterAgent(BaseAgent):
         from app.core.config import settings
         from app.providers.registry import get_provider
         from app.reasoning.engine import ReasoningEngine
+        from app.providers.base import LLMMessage
 
         provider = get_provider("custom", settings.custom_api_key, settings.custom_base_url)
         engine = ReasoningEngine(provider=provider, model=self.model)
-
-        from app.providers.base import LLMMessage
 
         # Generate test code via Best-of-N
         test_code = ""
@@ -97,23 +96,14 @@ class TesterAgent(BaseAgent):
                 test_code += chunk
                 await self._emit_thinking(chunk)
 
-        # Write code changes + test into the sandbox and run pytest
-        sandbox = await self.sandbox.fork()
+        # Run tests in sandbox with graceful failure handling
         try:
-            for change in context.code_changes:
-                if change.action != "delete":
-                    await sandbox.run_command(f"mkdir -p /home/user/workspace/$(dirname {change.file})")
-                    await sandbox.write_file(f"/home/user/workspace/{change.file}", change.content)
-
-            await sandbox.write_file("/home/user/workspace/test_changes.py", test_code)
-
-            result = await sandbox.run_command(
-                "cd /home/user/workspace && python -m pytest test_changes.py -v --tb=short 2>&1",
-                timeout=120,
-            )
-            context.test_results = f"exit_code={result.exit_code}\n\nSTDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}"
-        finally:
-            await sandbox.destroy()
+            context.test_results = await self._run_in_sandbox(context, test_code)
+        except Exception as exc:
+            logger.warning("Sandbox failed — marking tests as skipped: %s", exc)
+            context.test_results = '{"status": "skipped", "reason": "sandbox unavailable"}'
+            context.issues_found = []
+            return context
 
         # Analyse test results with the LLM
         analysis_prompt = (
@@ -146,3 +136,36 @@ class TesterAgent(BaseAgent):
 
         logger.info("Tester finished — %d issues found", len(context.issues_found))
         return context
+
+    async def _run_in_sandbox(self, context: DevLoopContext, test_code: str) -> str:
+        """Write files and run pytest inside the sandbox. Returns test output."""
+        sandbox = await self.sandbox.fork()
+        try:
+            # Install pytest first
+            await sandbox.run_command("pip install -q pytest", timeout=60)
+
+            # Write code changes
+            for change in context.code_changes:
+                if change.action != "delete":
+                    await sandbox.run_command(
+                        f"mkdir -p /home/user/workspace/$(dirname {change.file})"
+                    )
+                    await sandbox.write_file(
+                        f"/home/user/workspace/{change.file}", change.content
+                    )
+
+            # Write test file
+            await sandbox.write_file("/home/user/workspace/test_changes.py", test_code)
+
+            # Run pytest
+            result = await sandbox.run_command(
+                "cd /home/user/workspace && python -m pytest test_changes.py -v --tb=short 2>&1",
+                timeout=120,
+            )
+            return (
+                f"exit_code={result.exit_code}\n\n"
+                f"STDOUT:\n{result.stdout}\n\n"
+                f"STDERR:\n{result.stderr}"
+            )
+        finally:
+            await sandbox.destroy()

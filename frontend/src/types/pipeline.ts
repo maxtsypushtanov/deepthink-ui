@@ -68,6 +68,7 @@ export type PipelineEvent = {
     | 'tool_call'
     | 'tool_result'
     | 'agent_thinking'
+    | 'strategy_selected'
     | 'error';
   agent?: AgentType;
   iteration?: number;
@@ -77,6 +78,7 @@ export type PipelineEvent = {
   call_id?: string;
   success?: boolean;
   chunk?: string;
+  complexity?: string;
   test_results?: string;
   decision?: string;
   issues_count?: number;
