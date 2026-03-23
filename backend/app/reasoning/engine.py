@@ -514,9 +514,9 @@ class ReasoningEngine:
 
         # Generate N responses in parallel
         if messages and messages[0].role == "system":
-            cot_messages = messages  # Already has system prompt from retune
+            cot_messages = list(messages)
         else:
-            cot_messages = [LLMMessage(role="system", content=persona)] + messages
+            cot_messages = [LLMMessage(role="system", content=persona)] + list(messages)
 
         async def generate_candidate(idx: int) -> tuple[int, str]:
             req = LLMRequest(
