@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import httpx
 import json
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import AsyncIterator
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -75,12 +78,13 @@ class BaseLLMProvider(ABC):
     async def complete(self, req: LLMRequest) -> LLMResponse:
         """Non-streaming completion."""
         req.stream = False
+        url = f"{self.base_url}/chat/completions"
+        body = self._build_body(req)
+        logger.debug("POST %s\nHeaders: %s\nBody: %s", url, self._headers(), json.dumps(body, ensure_ascii=False, default=str)[:2000])
         async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers=self._headers(),
-                json=self._build_body(req),
-            )
+            resp = await client.post(url, headers=self._headers(), json=body)
+            if resp.status_code >= 400:
+                logger.error("LLM API error %s: %s", resp.status_code, resp.text[:1000])
             resp.raise_for_status()
             data = resp.json()
 
@@ -99,13 +103,14 @@ class BaseLLMProvider(ABC):
     async def stream(self, req: LLMRequest) -> AsyncIterator[LLMChunk]:
         """Streaming completion yielding chunks."""
         req.stream = True
+        url = f"{self.base_url}/chat/completions"
+        body = self._build_body(req)
+        logger.debug("POST (stream) %s\nHeaders: %s\nBody: %s", url, self._headers(), json.dumps(body, ensure_ascii=False, default=str)[:2000])
         async with httpx.AsyncClient(timeout=120.0) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/chat/completions",
-                headers=self._headers(),
-                json=self._build_body(req),
-            ) as resp:
+            async with client.stream("POST", url, headers=self._headers(), json=body) as resp:
+                if resp.status_code >= 400:
+                    error_body = await resp.aread()
+                    logger.error("LLM API error %s: %s", resp.status_code, error_body.decode()[:1000])
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
