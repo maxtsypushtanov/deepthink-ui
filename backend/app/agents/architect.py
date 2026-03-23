@@ -86,11 +86,15 @@ class ArchitectAgent(BaseAgent):
         provider = get_provider("openrouter", settings.openrouter_api_key)
         engine = ReasoningEngine(provider=provider, model=self.model)
 
+        from app.providers.base import LLMMessage
+
         result = ""
         async for event in engine.run(
-            messages=[{"role": "user", "content": user_prompt}],
+            messages=[
+                LLMMessage(role="system", content=self.system_prompt),
+                LLMMessage(role="user", content=user_prompt),
+            ],
             strategy=self.reasoning_strategy,
-            system_prompt=self.system_prompt,
         ):
             if event.get("type") == "content_delta":
                 result += event.get("content", "")

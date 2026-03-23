@@ -93,11 +93,15 @@ class DeveloperAgent(BaseAgent):
             + self.system_prompt
         )
 
+        from app.providers.base import LLMMessage
+
         result = ""
         async for event in engine.run(
-            messages=[{"role": "user", "content": user_prompt}],
+            messages=[
+                LLMMessage(role="system", content=cot_system),
+                LLMMessage(role="user", content=user_prompt),
+            ],
             strategy=self.reasoning_strategy,
-            system_prompt=cot_system,
         ):
             if event.get("type") == "content_delta":
                 result += event.get("content", "")

@@ -81,12 +81,16 @@ class TesterAgent(BaseAgent):
         provider = get_provider("openrouter", settings.openrouter_api_key)
         engine = ReasoningEngine(provider=provider, model=self.model)
 
+        from app.providers.base import LLMMessage
+
         # Generate test code via Best-of-N
         test_code = ""
         async for event in engine.run(
-            messages=[{"role": "user", "content": user_prompt}],
+            messages=[
+                LLMMessage(role="system", content=self.system_prompt),
+                LLMMessage(role="user", content=user_prompt),
+            ],
             strategy=self.reasoning_strategy,
-            system_prompt=self.system_prompt,
         ):
             if event.get("type") == "content_delta":
                 test_code += event.get("content", "")
@@ -123,9 +127,11 @@ class TesterAgent(BaseAgent):
 
         analysis = ""
         async for event in engine.run(
-            messages=[{"role": "user", "content": analysis_prompt}],
+            messages=[
+                LLMMessage(role="system", content=self.system_prompt),
+                LLMMessage(role="user", content=analysis_prompt),
+            ],
             strategy=ReasoningStrategy.COT,
-            system_prompt=self.system_prompt,
         ):
             if event.get("type") == "content_delta":
                 analysis += event.get("content", "")
