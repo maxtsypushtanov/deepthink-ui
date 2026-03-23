@@ -12,6 +12,7 @@ import {
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useChatStore } from '@/stores/chatStore';
+import { api } from '@/lib/api';
 import type { Conversation, Folder } from '@/types';
 import { cn } from '@/lib/utils';
 import {
@@ -35,13 +36,19 @@ function ConversationItem({
   collapsed,
   onSelect,
   onDelete,
+  onRename,
 }: {
   conv: Conversation;
   isActive: boolean;
   collapsed: boolean;
   onSelect: () => void;
   onDelete: () => void;
+  onRename?: (id: string, title: string) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(conv.title);
+  const renameRef = useRef<HTMLInputElement>(null);
+
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `conv-${conv.id}`,
     data: { type: 'conversation', conversation: conv },
@@ -51,6 +58,17 @@ function ConversationItem({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
+  };
+
+  useEffect(() => {
+    if (editing) renameRef.current?.focus();
+  }, [editing]);
+
+  const handleRename = () => {
+    if (editTitle.trim() && editTitle !== conv.title && onRename) {
+      onRename(conv.id, editTitle.trim());
+    }
+    setEditing(false);
   };
 
   return (
@@ -65,24 +83,45 @@ function ConversationItem({
         collapsed && 'justify-center px-0',
       )}
       onClick={onSelect}
+      onDoubleClick={(e) => {
+        if (collapsed) return;
+        e.stopPropagation();
+        setEditTitle(conv.title);
+        setEditing(true);
+      }}
     >
       <div {...attributes} {...listeners} className="cursor-grab text-muted-foreground/50 hover:text-muted-foreground">
         <GripVertical className="h-3 w-3" />
       </div>
       <MessageSquare className="h-3.5 w-3.5 shrink-0" />
       {!collapsed && (
-        <>
-          <span className="truncate">{conv.title}</span>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
+        editing ? (
+          <input
+            ref={renameRef}
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleRename();
+              if (e.key === 'Escape') setEditing(false);
             }}
-            className="ml-auto hidden rounded p-0.5 text-muted-foreground hover:text-destructive group-hover:block"
-          >
-            <Trash2 className="h-3 w-3" />
-          </button>
-        </>
+            onBlur={handleRename}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full rounded border border-border bg-background px-1 py-0 text-sm"
+          />
+        ) : (
+          <>
+            <span className="truncate">{conv.title}</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="ml-auto hidden rounded p-0.5 text-muted-foreground hover:text-destructive group-hover:block"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </>
+        )
       )}
     </div>
   );
@@ -100,6 +139,7 @@ function FolderItem({
   collapsed,
   onSelectConversation,
   onDeleteConversation,
+  onRenameConversation,
   onRename,
   onDelete,
   onCreateSubfolder,
@@ -113,6 +153,7 @@ function FolderItem({
   collapsed: boolean;
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
+  onRenameConversation: (id: string, title: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
   onCreateSubfolder: (parentId: string) => void;
@@ -246,6 +287,7 @@ function FolderItem({
               collapsed={collapsed}
               onSelectConversation={onSelectConversation}
               onDeleteConversation={onDeleteConversation}
+              onRenameConversation={onRenameConversation}
               onRename={onRename}
               onDelete={onDelete}
               onCreateSubfolder={onCreateSubfolder}
@@ -259,6 +301,7 @@ function FolderItem({
               collapsed={collapsed}
               onSelect={() => onSelectConversation(conv.id)}
               onDelete={() => onDeleteConversation(conv.id)}
+              onRename={onRenameConversation}
             />
           ))}
           {conversations.length === 0 && childFolders.length === 0 && (
@@ -290,6 +333,7 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
   const activeId = useChatStore((s) => s.activeConversationId);
   const selectConversation = useChatStore((s) => s.selectConversation);
   const deleteConversation = useChatStore((s) => s.deleteConversation);
+  const loadConversations = useChatStore((s) => s.loadConversations);
   const loadFolders = useChatStore((s) => s.loadFolders);
   const createFolder = useChatStore((s) => s.createFolder);
   const renameFolder = useChatStore((s) => s.renameFolder);
@@ -298,6 +342,14 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
   const moveFolder = useChatStore((s) => s.moveFolder);
 
   const [dragActive, setDragActive] = useState<string | null>(null);
+
+  const renameConversation = useCallback(
+    async (id: string, title: string) => {
+      await api.updateConversation(id, title);
+      loadConversations();
+    },
+    [loadConversations],
+  );
 
   useEffect(() => {
     loadFolders();
@@ -389,6 +441,7 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
             collapsed={collapsed}
             onSelectConversation={(id) => selectConversation(id)}
             onDeleteConversation={(id) => deleteConversation(id)}
+            onRenameConversation={renameConversation}
             onRename={(id, name) => renameFolder(id, name)}
             onDelete={(id) => deleteFolder(id)}
             onCreateSubfolder={(parentId) => handleCreateFolder(parentId)}
@@ -422,6 +475,7 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
                   collapsed={collapsed}
                   onSelect={() => selectConversation(conv.id)}
                   onDelete={() => deleteConversation(conv.id)}
+                  onRename={renameConversation}
                 />
               ))}
             </div>
@@ -436,6 +490,7 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
             collapsed={collapsed}
             onSelect={() => selectConversation(conv.id)}
             onDelete={() => deleteConversation(conv.id)}
+            onRename={renameConversation}
           />
         ))}
       </div>

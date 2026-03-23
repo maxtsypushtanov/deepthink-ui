@@ -16,30 +16,19 @@ export function ChatArea() {
   const clearError = useChatStore((s) => s.clearError);
   const lastPersona = useChatStore((s) => s.lastPersona);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const displayPersona = streaming.currentPersona || lastPersona;
   const activeTitle = conversations.find((c) => c.id === activeId)?.title;
 
+  // Auto-scroll on new messages and streaming content
   useEffect(() => {
-    if (scrollTimeoutRef.current) return;
-    scrollTimeoutRef.current = setTimeout(() => {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-      scrollTimeoutRef.current = null;
-    }, 150);
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streaming.currentContent]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-    };
-  }, []);
-
   return (
-    <main className="flex flex-1 flex-col">
+    <main className="flex h-full flex-col">
       {/* Top bar */}
-      <header className="flex items-center justify-between border-b border-border px-6 py-2">
+      <header className="flex shrink-0 items-center justify-between border-b border-border px-6 py-2">
         <ModelSelector />
         {activeTitle && (
           <span className="text-xs text-muted-foreground truncate max-w-[200px]">
@@ -49,7 +38,7 @@ export function ChatArea() {
         <PersonaIndicator persona={displayPersona} />
       </header>
 
-      {/* Messages */}
+      {/* Messages — fills remaining space, scrollable */}
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 && !streaming.isStreaming ? (
           <EmptyState />
@@ -76,7 +65,7 @@ export function ChatArea() {
                   onClick={clearError}
                   className="mt-1 text-xs underline hover:no-underline"
                 >
-                  Dismiss
+                  Закрыть
                 </button>
               </div>
             )}
@@ -86,8 +75,10 @@ export function ChatArea() {
         )}
       </div>
 
-      {/* Input */}
-      <ChatInput />
+      {/* Input — pinned to bottom */}
+      <div className="shrink-0">
+        <ChatInput />
+      </div>
     </main>
   );
 }

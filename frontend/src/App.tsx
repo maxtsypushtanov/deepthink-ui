@@ -4,6 +4,7 @@ import { ChatArea } from '@/components/chat/ChatArea';
 import { PipelineView } from '@/components/Pipeline/PipelineView';
 import { useThemeStore } from '@/stores/themeStore';
 import { useChatStore } from '@/stores/chatStore';
+import { usePipelineStore } from '@/stores/pipelineStore';
 import { cn } from '@/lib/utils';
 import { MessageSquare, GitBranch } from 'lucide-react';
 
@@ -13,6 +14,7 @@ export default function App() {
   const theme = useThemeStore((s) => s.mode);
   const loadConversations = useChatStore((s) => s.loadConversations);
   const createConversation = useChatStore((s) => s.createConversation);
+  const pipelineStatus = usePipelineStore((s) => s.status);
   const [activeTab, setActiveTab] = useState<Tab>('chat');
 
   useEffect(() => {
@@ -22,6 +24,13 @@ export default function App() {
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
+
+  // Auto-switch to pipeline tab when pipeline starts
+  useEffect(() => {
+    if (pipelineStatus === 'running') {
+      setActiveTab('pipeline');
+    }
+  }, [pipelineStatus]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -49,13 +58,14 @@ export default function App() {
             active={activeTab === 'chat'}
             onClick={() => setActiveTab('chat')}
             icon={<MessageSquare className="h-3.5 w-3.5" />}
-            label="Chat"
+            label="Чат"
           />
           <TabButton
             active={activeTab === 'pipeline'}
             onClick={() => setActiveTab('pipeline')}
             icon={<GitBranch className="h-3.5 w-3.5" />}
-            label="Pipeline"
+            label="Пайплайн"
+            badge={pipelineStatus === 'running'}
           />
         </div>
 
@@ -74,11 +84,13 @@ function TabButton({
   onClick,
   icon,
   label,
+  badge,
 }: {
   active: boolean;
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
+  badge?: boolean;
 }) {
   return (
     <button
@@ -92,6 +104,9 @@ function TabButton({
     >
       {icon}
       {label}
+      {badge && (
+        <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-yellow-400" />
+      )}
     </button>
   );
 }

@@ -193,4 +193,7 @@ async def stream_pipeline(websocket: WebSocket, task_id: str) -> None:
     except WebSocketDisconnect:
         logger.debug("WebSocket client disconnected for task %s", task_id)
     finally:
-        await websocket.close()
+        try:
+            await websocket.close()
+        except RuntimeError:
+            pass  # client already disconnected

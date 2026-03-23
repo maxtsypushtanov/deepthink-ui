@@ -23,7 +23,7 @@ export function PipelineView() {
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold">Pipeline</h2>
+        <h2 className="text-sm font-semibold">Пайплайн</h2>
         {context && (
           <span className="text-xs text-muted-foreground truncate max-w-md">
             {context.task}
@@ -36,7 +36,7 @@ export function PipelineView() {
               className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/10"
             >
               <Square className="h-3 w-3" />
-              Stop
+              Стоп
             </button>
           )}
           {(status === 'done' || status === 'error') && (
@@ -45,7 +45,7 @@ export function PipelineView() {
               className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
             >
               <RotateCcw className="h-3 w-3" />
-              New Run
+              Новый запуск
             </button>
           )}
         </div>
@@ -95,22 +95,22 @@ function IdleForm({ onStart }: { onStart: (task: string, repo: string, max?: num
         className="w-full max-w-lg space-y-5 rounded-xl border border-border bg-card p-6"
       >
         <div>
-          <h2 className="text-lg font-semibold">Start Pipeline</h2>
+          <h2 className="text-lg font-semibold">Запустить пайплайн</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Multi-agent dev loop: Architect, Developer, Tester, Orchestrator
+            Мульти-агентный цикл: Архитектор, Разработчик, Тестировщик, Оркестратор
           </p>
         </div>
 
         {/* Task */}
         <div className="space-y-1.5">
           <label htmlFor="pipeline-task" className="text-xs font-medium text-muted-foreground">
-            Task Description
+            Описание задачи
           </label>
           <textarea
             id="pipeline-task"
             value={task}
             onChange={(e) => setTask(e.target.value)}
-            placeholder="Add OAuth2 login with GitHub provider..."
+            placeholder="Добавь OAuth2 авторизацию через GitHub..."
             rows={3}
             className={cn(
               'w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm',
@@ -123,7 +123,7 @@ function IdleForm({ onStart }: { onStart: (task: string, repo: string, max?: num
         {/* Repo */}
         <div className="space-y-1.5">
           <label htmlFor="pipeline-repo" className="text-xs font-medium text-muted-foreground">
-            GitHub Repository
+            GitHub Репозиторий
           </label>
           <input
             id="pipeline-repo"
@@ -142,7 +142,7 @@ function IdleForm({ onStart }: { onStart: (task: string, repo: string, max?: num
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <label htmlFor="pipeline-iters" className="text-xs font-medium text-muted-foreground">
-              Max Iterations
+              Макс. итераций
             </label>
             <span className="text-xs font-mono text-muted-foreground">{maxIterations}</span>
           </div>
@@ -169,7 +169,7 @@ function IdleForm({ onStart }: { onStart: (task: string, repo: string, max?: num
           )}
         >
           <Play className="h-4 w-4" />
-          {submitting ? 'Starting...' : 'Start Pipeline'}
+          {submitting ? 'Запуск...' : 'Запустить'}
         </button>
       </form>
     </div>
