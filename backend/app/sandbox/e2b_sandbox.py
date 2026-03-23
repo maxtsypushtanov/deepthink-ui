@@ -31,7 +31,7 @@ class E2BSandboxClient(SandboxClient):
 
     async def initialize(self, requirements_txt: str = "") -> None:
         """Spin up a base sandbox and install Python dependencies."""
-        self._sandbox = Sandbox(api_key=self._api_key, template=self._template)
+        self._sandbox = Sandbox(template=self._template, api_key=self._api_key)
         if requirements_txt.strip():
             self._sandbox.files.write("/tmp/requirements.txt", requirements_txt)
             proc = self._sandbox.commands.run("pip install -r /tmp/requirements.txt", timeout=120)
@@ -45,7 +45,7 @@ class E2BSandboxClient(SandboxClient):
         if self._sandbox is None:
             raise RuntimeError("Base sandbox not initialized — call initialize() first")
         child = E2BSandboxClient(api_key=self._api_key, template=self._template)
-        child._sandbox = Sandbox(api_key=self._api_key, template=self._template)
+        child._sandbox = Sandbox(template=self._template, api_key=self._api_key)
         logger.debug("Forked sandbox")
         return child
 
