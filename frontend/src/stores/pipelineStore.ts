@@ -79,7 +79,7 @@ export const usePipelineStore = create<PipelineStore>((set, get) => ({
         set((s) => ({ events: [...s.events, event] }));
 
         // Refresh full context on meaningful events
-        if (['iteration_complete', 'pipeline_done'].includes(event.type)) {
+        if (['iteration_complete', 'pipeline_done', 'agent_started'].includes(event.type)) {
           try {
             const resp = await fetch(`${API_BASE}/api/pipeline/${taskId}/status`);
             if (resp.ok) {

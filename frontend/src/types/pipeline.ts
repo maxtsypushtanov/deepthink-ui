@@ -39,16 +39,47 @@ export interface DevLoopContext {
   history: IterationSnapshot[];
 }
 
-export interface PipelineEvent {
+export interface ToolCallEvent {
+  type: 'tool_call';
+  agent: AgentType;
+  tool: string;
+  input: string;
+  call_id: string;
+  timestamp: string;
+}
+
+export interface ToolResultEvent {
+  type: 'tool_result';
+  agent: AgentType;
+  tool: string;
+  call_id: string;
+  output: string;
+  success: boolean;
+  timestamp: string;
+}
+
+export type PipelineEvent = {
   type:
     | 'agent_started'
     | 'mcp_call_made'
     | 'sandbox_result'
     | 'iteration_complete'
     | 'pipeline_done'
+    | 'tool_call'
+    | 'tool_result'
     | 'error';
   agent?: AgentType;
   iteration?: number;
+  tool?: string;
+  input?: string;
+  output?: string;
+  call_id?: string;
+  success?: boolean;
+  test_results?: string;
+  decision?: string;
+  issues_count?: number;
+  status?: string;
+  message?: string;
   data?: Record<string, unknown>;
   timestamp: string;
-}
+};

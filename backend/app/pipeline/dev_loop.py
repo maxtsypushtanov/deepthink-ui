@@ -1,4 +1,4 @@
-"""Multi-agent development loop: Architect → Developer → Tester → Orchestrator."""
+"""Multi-agent development loop: Architect -> Developer -> Tester -> Orchestrator."""
 
 from __future__ import annotations
 
@@ -31,21 +31,7 @@ async def run(
     orchestrator_model: str = "zai-org/GLM-4.6",
     on_event: Any | None = None,
 ) -> DevLoopContext:
-    """Execute the dev loop and return the final context.
-
-    Args:
-        task: Natural-language description of what to build / fix.
-        repo: GitHub repository in "owner/repo" format.
-        mcp_client: Initialised MCP client connected to GitHub MCP Server.
-        sandbox: Initialised SandboxClient for running tests.
-        max_iterations: Hard cap on loop iterations.
-        stop_on_clean_iterations: Stop early after N consecutive clean iterations.
-        architect_model: Model ID for the Architect agent.
-        developer_model: Model ID for the Developer agent.
-        tester_model: Model ID for the Tester agent.
-        orchestrator_model: Model ID for the Orchestrator agent.
-        on_event: Optional async callback ``(event: dict) -> None`` for streaming.
-    """
+    """Execute the dev loop and return the final context."""
 
     async def emit(event: dict[str, Any]) -> None:
         if on_event is not None:
@@ -58,32 +44,34 @@ async def run(
     tester = TesterAgent(model=tester_model, mcp_client=mcp_client, sandbox=sandbox)
     orchestrator = OrchestratorAgent(model=orchestrator_model, mcp_client=mcp_client)
 
+    agents_in_order: list[tuple[str, Any]] = [
+        ("architect", architect),
+        ("developer", developer),
+        ("tester", tester),
+        ("orchestrator", orchestrator),
+    ]
+
     consecutive_clean = 0
 
     for iteration in range(1, max_iterations + 1):
         context.iteration = iteration
         logger.info("=== Pipeline iteration %d ===", iteration)
 
-        # --- Architect ---
-        await emit({"type": "agent_started", "agent": "architect", "iteration": iteration})
-        context = await architect.run(context)
+        for agent_name, agent in agents_in_order:
+            await emit({"type": "agent_started", "agent": agent_name, "iteration": iteration})
 
-        # --- Developer ---
-        await emit({"type": "agent_started", "agent": "developer", "iteration": iteration})
-        context = await developer.run(context)
+            # Wire event callback into MCP client so tool calls are streamed
+            mcp_client.set_event_callback(emit, agent_name)
 
-        # --- Tester ---
-        await emit({"type": "agent_started", "agent": "tester", "iteration": iteration})
-        context = await tester.run(context)
-        await emit({
-            "type": "sandbox_result",
-            "iteration": iteration,
-            "test_results": context.test_results,
-        })
+            context = await agent.run(context)
 
-        # --- Orchestrator ---
-        await emit({"type": "agent_started", "agent": "orchestrator", "iteration": iteration})
-        context = await orchestrator.run(context)
+            if agent_name == "tester":
+                await emit({
+                    "type": "sandbox_result",
+                    "agent": "tester",
+                    "iteration": iteration,
+                    "test_results": context.test_results,
+                })
 
         # Snapshot the iteration
         context.history.append(context.snapshot())
@@ -108,9 +96,6 @@ async def run(
         if context.decision == "done":
             context.status = "done"
             break
-
-        # Clear transient fields before the next iteration
-        # (issues_found persists so Architect can read them)
     else:
         context.status = "max_iterations_reached"
 

@@ -2,20 +2,27 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from typing import Any
+import uuid
+from typing import Any, Callable, Awaitable
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 logger = logging.getLogger(__name__)
 
+EventCallback = Callable[[dict[str, Any]], Awaitable[None]]
+
 
 class MCPClient:
     """Connects to an MCP server via stdio subprocess."""
 
-    def __init__(self, command: str, args: list[str] | None = None, env: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+    ) -> None:
         self._server_params = StdioServerParameters(
             command=command,
             args=args or [],
@@ -26,6 +33,17 @@ class MCPClient:
         self._write: Any = None
         self._cm: Any = None
         self._session_cm: Any = None
+        self._on_event: EventCallback | None = None
+        self._current_agent: str | None = None
+
+    def set_event_callback(self, callback: EventCallback, agent: str) -> None:
+        """Attach an event callback so tool calls are streamed to the frontend."""
+        self._on_event = callback
+        self._current_agent = agent
+
+    async def _emit(self, event: dict[str, Any]) -> None:
+        if self._on_event is not None:
+            await self._on_event(event)
 
     async def initialize(self) -> None:
         """Start the subprocess and initialize the MCP session."""
@@ -40,14 +58,49 @@ class MCPClient:
         """Invoke a tool on the MCP server and return the result."""
         if self._session is None:
             raise RuntimeError("MCPClient not initialized — call initialize() first")
-        logger.debug("MCP call_tool: %s(%s)", name, params)
-        result = await self._session.call_tool(name, arguments=params or {})
+
+        call_id = uuid.uuid4().hex[:8]
+        safe_params = params or {}
+
+        # Emit tool_call event
+        input_preview = ""
+        if "q" in safe_params:
+            input_preview = str(safe_params["q"])[:120]
+        elif "path" in safe_params:
+            input_preview = str(safe_params["path"])[:120]
+        elif "owner" in safe_params and "repo" in safe_params:
+            input_preview = f"{safe_params['owner']}/{safe_params['repo']}"
+
+        await self._emit({
+            "type": "tool_call",
+            "agent": self._current_agent,
+            "tool": name,
+            "input": input_preview,
+            "call_id": call_id,
+        })
+
+        logger.debug("MCP call_tool: %s(%s)", name, safe_params)
+        result = await self._session.call_tool(name, arguments=safe_params)
+
         # Flatten TextContent list into a single dict
         content_parts = []
         for block in result.content:
             if hasattr(block, "text"):
                 content_parts.append(block.text)
-        return {"content": "\n".join(content_parts), "is_error": result.isError}
+        output = "\n".join(content_parts)
+
+        # Emit tool_result event
+        output_preview = output[:300] if output else ""
+        await self._emit({
+            "type": "tool_result",
+            "call_id": call_id,
+            "agent": self._current_agent,
+            "tool": name,
+            "output": output_preview,
+            "success": not result.isError,
+        })
+
+        return {"content": output, "is_error": result.isError}
 
     async def list_tools(self) -> list[dict[str, Any]]:
         """List available tools on the server."""

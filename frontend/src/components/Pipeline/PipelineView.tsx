@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { usePipelineStore } from '@/stores/pipelineStore';
 import { cn } from '@/lib/utils';
 import { Play, Square, RotateCcw, AlertCircle } from 'lucide-react';
-import { IterationTimeline } from './IterationTimeline';
-import { MCPCallLog } from './MCPCallLog';
+import { GroundedTree } from './GroundedTree';
 import { PRBadge } from './PRBadge';
 
 export function PipelineView() {
@@ -51,20 +50,28 @@ export function PipelineView() {
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {error && (
-          <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            {error}
-          </div>
-        )}
+      {/* Error banner */}
+      {error && (
+        <div className="flex items-center gap-2 border-b border-red-500/30 bg-red-500/10 px-4 py-2.5 text-xs text-red-400">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          {error}
+        </div>
+      )}
 
-        {context?.pull_request_url && <PRBadge url={context.pull_request_url} />}
+      {/* PR badge */}
+      {context?.pull_request_url && (
+        <div className="px-4 pt-3">
+          <PRBadge url={context.pull_request_url} />
+        </div>
+      )}
 
-        <IterationTimeline context={context} events={events} />
-        <MCPCallLog events={events} />
-      </div>
+      {/* Grounded Tree visualization */}
+      <GroundedTree
+        events={events}
+        context={context}
+        pipelineDone={status === 'done' || status === 'error'}
+        task={context?.task || ''}
+      />
     </div>
   );
 }
