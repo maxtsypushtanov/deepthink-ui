@@ -187,7 +187,7 @@ class GToTEngine:
     # ── 1. Plan initial exploration ──
 
     async def plan_exploration(self, task: str, repo: str) -> list[ThoughtNode]:
-        prompt = PLAN_PROMPT.format(task=task, repo=repo)
+        prompt = PLAN_PROMPT.replace("{task}", task).replace("{repo}", repo)
         resp = await self.provider.complete(LLMRequest(
             messages=[LLMMessage(role="user", content=prompt)],
             model=self.model,
@@ -272,11 +272,11 @@ class GToTEngine:
                 node.score = 0.0
                 return node
 
-            prompt = SCORE_PROMPT.format(
-                task=task,
-                tool=node.tool_name,
-                args=json.dumps(node.tool_args, ensure_ascii=False),
-                result=str(node.result)[:500],
+            prompt = (SCORE_PROMPT
+                .replace("{task}", task)
+                .replace("{tool}", node.tool_name)
+                .replace("{args}", json.dumps(node.tool_args, ensure_ascii=False))
+                .replace("{result}", str(node.result)[:500])
             )
             try:
                 resp = await self.provider.complete(LLMRequest(
@@ -327,12 +327,12 @@ class GToTEngine:
             if node.status != NodeStatus.COMPLETED or node.score < self.pruning_threshold:
                 continue
 
-            prompt = EXPAND_PROMPT.format(
-                task=task,
-                tool=node.tool_name,
-                args=json.dumps(node.tool_args, ensure_ascii=False),
-                score=node.score,
-                result=str(node.result)[:500],
+            prompt = (EXPAND_PROMPT
+                .replace("{task}", task)
+                .replace("{tool}", node.tool_name)
+                .replace("{args}", json.dumps(node.tool_args, ensure_ascii=False))
+                .replace("{score}", str(node.score))
+                .replace("{result}", str(node.result)[:500])
             )
             try:
                 resp = await self.provider.complete(LLMRequest(

@@ -91,11 +91,11 @@ class ArchitectAgent(BaseAgent):
             for i in context.issues_found
         ) or "None"
 
-        synthesis_prompt = SYNTHESIS_PROMPT.format(
-            findings=findings,
-            task=context.task,
-            repo=context.repo,
-            prior_issues=prior_issues,
+        synthesis_prompt = (SYNTHESIS_PROMPT
+            .replace("{findings}", findings)
+            .replace("{task}", context.task)
+            .replace("{repo}", context.repo)
+            .replace("{prior_issues}", prior_issues)
         )
 
         # Final LLM call to synthesize spec
