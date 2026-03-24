@@ -78,32 +78,40 @@ async def chat(req: ChatRequest):
     if req.clarification_context:
         messages.append(LLMMessage(role="system", content=req.clarification_context))
 
-    # Inject calendar context if message mentions calendar/meeting keywords
-    calendar_keywords = ("встреч", "календар", "расписани", "запланир", "назначь", "добавь встречу", "собрани", "созвон")
-    if any(kw in req.message.lower() for kw in calendar_keywords):
+    # Calendar mode: inject full calendar context and tool instructions
+    if req.calendar_mode:
         from app.db import calendar as cal_db
         from datetime import datetime, timedelta
         today = datetime.now().strftime("%Y-%m-%d")
         tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         week_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         week_start -= timedelta(days=week_start.weekday())
-        week_end = week_start + timedelta(days=7)
+        week_end = week_start + timedelta(days=14)
         existing = await cal_db.list_events(week_start.isoformat(), week_end.isoformat())
         free_today = await cal_db.find_free_slots(today)
         free_tomorrow = await cal_db.find_free_slots(tomorrow)
 
+        events_text = "\n".join(
+            f"- [{e['id']}] {e['title']}: {e['start_time']} — {e['end_time']}" + (f" ({e['description']})" if e.get('description') else "")
+            for e in existing
+        ) or "Нет встреч"
+
         cal_context = (
-            f"У тебя есть доступ к календарю пользователя.\n"
+            f"РЕЖИМ КАЛЕНДАРЯ. У тебя есть полный доступ к календарю пользователя.\n"
             f"Сегодня: {today}\n\n"
-            f"Встречи на этой неделе:\n"
-            + ("\n".join(f"- {e['title']}: {e['start_time']} — {e['end_time']}" for e in existing) or "Нет встреч")
-            + f"\n\nСвободные слоты сегодня ({today}):\n"
-            + ("\n".join(f"  {s['start']} — {s['end']}" for s in free_today) or "  Нет")
+            f"Встречи на ближайшие 2 недели:\n{events_text}\n\n"
+            f"Свободные слоты сегодня ({today}):\n"
+            + ("\n".join(f"  {s['start']} — {s['end']}" for s in free_today) or "  Весь день свободен")
             + f"\n\nСвободные слоты завтра ({tomorrow}):\n"
-            + ("\n".join(f"  {s['start']} — {s['end']}" for s in free_tomorrow) or "  Нет")
-            + "\n\nЧтобы создать встречу, включи в ответ JSON-блок:\n"
-            '{"calendar_event": {"title": "Название", "start_time": "ISO", "end_time": "ISO", "description": "..."}}\n'
-            "Встреча будет создана автоматически. Предложи пользователю 2-3 варианта времени из свободных слотов."
+            + ("\n".join(f"  {s['start']} — {s['end']}" for s in free_tomorrow) or "  Весь день свободен")
+            + '\n\nДЕЙСТВИЯ С КАЛЕНДАРЁМ:\n'
+            'Создать: {"calendar_action": "create", "title": "...", "start_time": "YYYY-MM-DDTHH:MM:SS", "end_time": "YYYY-MM-DDTHH:MM:SS", "description": "..."}\n'
+            'Удалить: {"calendar_action": "delete", "event_id": "id"}\n'
+            'Изменить: {"calendar_action": "update", "event_id": "id", "title": "...", "start_time": "...", "end_time": "...", "description": "..."}\n\n'
+            'Включай JSON-блок действия в ответ — оно выполнится автоматически.\n'
+            'Если пользователь просит создать встречу — предложи 2-3 варианта из свободных слотов.\n'
+            'Если спрашивает про расписание — ответь на основе данных выше.\n'
+            'Отвечай на русском, кратко.'
         )
         messages.insert(0, LLMMessage(role="system", content=cal_context))
 
@@ -234,28 +242,42 @@ async def chat(req: ChatRequest):
             reasoning_trace=json.dumps(reasoning_trace, ensure_ascii=False) if reasoning_trace else None,
         )
 
-        # Auto-detect calendar event creation in response
-        created_event = None
-        try:
-            import re
-            match = re.search(r'\{[\s\S]*"calendar_event"[\s\S]*\}', full_content)
-            if match:
+        # Auto-detect calendar actions in response
+        calendar_result = None
+        if req.calendar_mode:
+            try:
+                import re
                 from app.db import calendar as cal_db
-                data = json.loads(match.group())
-                ev = data.get("calendar_event", data)
-                if ev.get("title") and ev.get("start_time") and ev.get("end_time"):
-                    created_event = await cal_db.create_event(
-                        title=ev["title"],
-                        start_time=ev["start_time"],
-                        end_time=ev["end_time"],
-                        description=ev.get("description", ""),
-                    )
-        except Exception:
-            pass  # not a calendar response
+                match = re.search(r'\{[\s\S]*"calendar_action"[\s\S]*?\}', full_content)
+                if match:
+                    data = json.loads(match.group())
+                    action = data.get("calendar_action")
+                    if action == "create" and data.get("title") and data.get("start_time") and data.get("end_time"):
+                        ev = await cal_db.create_event(
+                            title=data["title"],
+                            start_time=data["start_time"],
+                            end_time=data["end_time"],
+                            description=data.get("description", ""),
+                        )
+                        calendar_result = {"action": "created", "event": ev}
+                    elif action == "delete" and data.get("event_id"):
+                        ok = await cal_db.delete_event(data["event_id"])
+                        calendar_result = {"action": "deleted", "event_id": data["event_id"], "ok": ok}
+                    elif action == "update" and data.get("event_id"):
+                        ev = await cal_db.update_event(
+                            data["event_id"],
+                            title=data.get("title"),
+                            start_time=data.get("start_time"),
+                            end_time=data.get("end_time"),
+                            description=data.get("description"),
+                        )
+                        calendar_result = {"action": "updated", "event": ev}
+            except Exception:
+                pass
 
         done_data: dict = {}
-        if created_event:
-            done_data["created_event"] = created_event
+        if calendar_result:
+            done_data["calendar_result"] = calendar_result
 
         yield {"event": "done", "data": json.dumps(done_data, ensure_ascii=False)}
 

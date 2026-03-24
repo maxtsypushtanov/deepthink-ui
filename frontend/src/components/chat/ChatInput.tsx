@@ -3,7 +3,7 @@ import { useChatStore } from '@/stores/chatStore';
 import { STRATEGY_LABELS_RU } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import type { ReasoningStrategy } from '@/types';
-import { ArrowUp, Square, Brain, Sparkles, GitBranch, TreePine, Target, Zap } from 'lucide-react';
+import { ArrowUp, Square, Brain, Sparkles, GitBranch, TreePine, Target, Zap, Calendar } from 'lucide-react';
 
 const STRATEGY_OPTIONS: { key: ReasoningStrategy; icon: React.ComponentType<any>; color: string }[] = [
   { key: 'auto', icon: Zap, color: 'text-amber-400' },
@@ -16,10 +16,18 @@ const STRATEGY_OPTIONS: { key: ReasoningStrategy; icon: React.ComponentType<any>
 
 const PLACEHOLDERS = [
   'Спросите что угодно...',
-  'Докажи, что √2 иррациональное число...',
+  'Докажи, что \u221A2 иррациональное число...',
   'Сравни REST и GraphQL...',
   'Объясни квантовые вычисления простыми словами...',
   'Напиши функцию сортировки на Python...',
+];
+
+const CALENDAR_PLACEHOLDERS = [
+  'Добавь встречу с командой на завтра в 14:00...',
+  'Какое у меня расписание на эту неделю?',
+  'Перенеси утреннюю встречу на 15:00...',
+  'Удали встречу с дизайнером...',
+  'Запланируй созвон на пятницу в 11:00...',
 ];
 
 export function ChatInput() {
@@ -32,9 +40,13 @@ export function ChatInput() {
   const isStreaming = useChatStore((s) => s.streaming.isStreaming);
   const strategy = useChatStore((s) => s.settings.strategy);
   const updateSettings = useChatStore((s) => s.updateSettings);
+  const calendarMode = useChatStore((s) => s.calendarMode);
+  const toggleCalendarMode = useChatStore((s) => s.toggleCalendarMode);
 
   const currentOption = STRATEGY_OPTIONS.find((o) => o.key === strategy) || STRATEGY_OPTIONS[0];
   const CurrentIcon = currentOption.icon;
+
+  const placeholders = calendarMode ? CALENDAR_PLACEHOLDERS : PLACEHOLDERS;
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -45,12 +57,11 @@ export function ChatInput() {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setPlaceholderIdx((i) => (i + 1) % PLACEHOLDERS.length);
+      setPlaceholderIdx((i) => (i + 1) % placeholders.length);
     }, 4000);
     return () => clearInterval(timer);
-  }, []);
+  }, [calendarMode]);
 
-  // Listen for edit-message events from ChatMessage
   useEffect(() => {
     const handler = (e: Event) => {
       const content = (e as CustomEvent).detail;
@@ -80,17 +91,37 @@ export function ChatInput() {
   return (
     <div className="border-t border-border px-4 py-3">
       <div className="mx-auto max-w-3xl">
-        <div className="relative flex items-end rounded-xl border border-border bg-card shadow-sm transition-shadow focus-within:shadow-md focus-within:ring-2 focus-within:ring-ring/50 focus-within:border-foreground/20">
+        <div className={cn(
+          'relative flex items-end rounded-xl border shadow-sm transition-all',
+          'focus-within:shadow-md focus-within:ring-2 focus-within:ring-ring/50 focus-within:border-foreground/20',
+          calendarMode
+            ? 'border-primary/30 bg-primary/5'
+            : 'border-border bg-card',
+        )}>
           <textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={PLACEHOLDERS[placeholderIdx]}
+            placeholder={placeholders[placeholderIdx % placeholders.length]}
             rows={1}
             className="flex-1 resize-none bg-transparent px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
           <div className="flex items-center gap-1 px-2 pb-2">
+            {/* Calendar toggle */}
+            <button
+              onClick={toggleCalendarMode}
+              className={cn(
+                'flex items-center justify-center rounded-lg p-1.5 transition-colors',
+                calendarMode
+                  ? 'bg-primary/20 text-primary'
+                  : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent',
+              )}
+              title={calendarMode ? 'Режим календаря (активен)' : 'Включить режим календаря'}
+            >
+              <Calendar className="h-3.5 w-3.5" strokeWidth={1.5} />
+            </button>
+
             {/* Strategy chip */}
             <div className="relative">
               <button
@@ -155,8 +186,13 @@ export function ChatInput() {
             )}
           </div>
         </div>
-        <div className="mt-1.5 flex items-center justify-end px-1">
-          <span className="text-[10px] text-muted-foreground">
+        <div className="mt-1.5 flex items-center justify-between px-1">
+          {calendarMode && (
+            <span className="text-[10px] text-primary">
+              Режим календаря активен
+            </span>
+          )}
+          <span className="ml-auto text-[10px] text-muted-foreground">
             Shift+Enter — новая строка
           </span>
         </div>

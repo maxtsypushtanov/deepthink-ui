@@ -19,6 +19,7 @@ class ChatRequest(BaseModel):
     tree_breadth: int = Field(default=3, ge=2, le=5)
     tree_depth: int = Field(default=2, ge=1, le=4)
     clarification_context: str | None = None
+    calendar_mode: bool = False
 
 
 class ConversationCreate(BaseModel):

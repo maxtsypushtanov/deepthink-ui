@@ -30,6 +30,7 @@ interface ChatStore {
   messages: Message[];
   streaming: StreamingState;
   settings: ChatSettings;
+  calendarMode: boolean;
   error: string | null;
   lastPersona: StrategySelectedEvent | null;
 
@@ -42,6 +43,7 @@ interface ChatStore {
   sendClarification: (answer: string) => Promise<void>;
   stopStreaming: () => void;
   updateSettings: (partial: Partial<ChatSettings>) => void;
+  toggleCalendarMode: () => void;
   clearError: () => void;
   // Folder actions
   loadFolders: () => Promise<void>;
@@ -101,6 +103,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     tokensGenerated: 0,
   },
   settings: DEFAULT_SETTINGS,
+  calendarMode: false,
   error: null,
   lastPersona: null,
 
@@ -193,6 +196,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         best_of_n: settings.bestOfN,
         tree_breadth: settings.treeBreadth,
         tree_depth: settings.treeDepth,
+        calendar_mode: get().calendarMode,
       };
 
       for await (const { event, data } of streamChat(body)) {
@@ -307,6 +311,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 streaming: resetStreaming,
               };
             });
+
+            // Reload calendar if events were modified from chat
+            if (data?.calendar_result || get().calendarMode) {
+              import('@/stores/calendarStore').then(({ useCalendarStore }) => {
+                useCalendarStore.getState().loadWeekEvents();
+              }).catch(() => {});
+            }
             break;
           }
 
@@ -518,6 +529,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       streaming: { ...s.streaming, isStreaming: false },
     }));
   },
+
+  toggleCalendarMode: () => set((s) => ({ calendarMode: !s.calendarMode })),
 
   updateSettings: (partial) => {
     set((s) => ({ settings: { ...s.settings, ...partial } }));
