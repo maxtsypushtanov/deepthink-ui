@@ -326,14 +326,26 @@ class GToTEngine:
                     max_tokens=100,
                     stream=False,
                 ))
-                parsed = _extract_json(resp.content)
+                raw = resp.content or ""
+                logger.debug("Scorer raw response for %s: %s", node.id, raw[:200])
+
+                parsed = _extract_json(raw)
                 if parsed and isinstance(parsed, dict):
                     node.score = float(parsed.get("score", 0.5))
                     node.score_reason = parsed.get("reason", "")
                 else:
-                    node.score = 0.5
-                    node.score_reason = "could not parse score"
-            except Exception:
+                    # Regex fallback: find "score": 0.X anywhere in text
+                    import re
+                    score_match = re.search(r'"?score"?\s*[:=]\s*([\d.]+)', raw)
+                    if score_match:
+                        node.score = min(1.0, max(0.0, float(score_match.group(1))))
+                        reason_match = re.search(r'"?reason"?\s*[:=]\s*"([^"]*)"', raw)
+                        node.score_reason = reason_match.group(1) if reason_match else "regex extracted"
+                    else:
+                        node.score = 0.5
+                        node.score_reason = f"could not parse: {raw[:80]}"
+            except Exception as e:
+                logger.warning("Scoring failed for node %s: %s", node.id, e)
                 node.score = 0.5
                 node.score_reason = "scoring failed — default"
 

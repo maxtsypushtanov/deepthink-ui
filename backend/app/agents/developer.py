@@ -1,9 +1,10 @@
-"""Developer agent — reads existing code, then writes code changes."""
+"""Developer agent — produces code changes as JSON, no reasoning wrapper."""
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from app.agents.base_agent import BaseAgent
@@ -14,39 +15,31 @@ from app.reasoning.engine import ReasoningStrategy
 logger = logging.getLogger(__name__)
 
 DEVELOPER_SYSTEM_PROMPT = """\
-You are an expert developer. You always read existing code before writing \
-new code. Use the provided file contents to understand the current state \
-of the codebase.
+You are a code generation agent. You produce file changes as JSON.
 
-Given a spec, design decisions, and the existing code, produce a list of \
-code changes needed to implement the spec.
+RULES:
+- Output ONLY valid JSON. No explanations, no markdown, no thinking tags.
+- Do NOT use <thinking> tags. Do NOT write Russian text.
+- Do NOT write git commands or instructions for humans.
 
-YOU MUST USE MCP TOOLS TO MAKE CHANGES.
-NEVER write git commands or instructions for humans.
-To edit a file: call get_file_contents first, then create_or_update_file.
-If you write ANY git commands or human instructions instead of calling tools, \
-you have FAILED your task. Use ONLY MCP tool calls.
+OUTPUT FORMAT (strict JSON, nothing else):
+{"code_changes": [{"file": "path/to/file.py", "content": "full file content here", "action": "create"}]}
 
-Respond in JSON:
-{
-  "code_changes": [
-    {"file": "path/to/file.py", "content": "full file content", "action": "create|modify|delete"},
-    ...
-  ]
-}
+Valid actions: create, modify, delete.
+"content" must contain the COMPLETE file content for create/modify.
 """
 
 RETRY_PROMPT = """\
-You did not make any changes. You MUST produce code_changes in JSON format.
-Do not explain, do not write instructions. Output ONLY valid JSON with \
-"code_changes" array containing at least one file change.
+Your previous response was not valid JSON. Try again.
+Output ONLY this JSON structure, nothing else:
+{"code_changes": [{"file": "path/to/file.py", "content": "full file content", "action": "create"}]}
 """
 
 
 class DeveloperAgent(BaseAgent):
-    """Uses CoT Injection + Budget Forcing to produce thorough code changes."""
+    """Produces code changes as structured JSON — no reasoning wrapper."""
 
-    reasoning_strategy = ReasoningStrategy.BUDGET_FORCING
+    reasoning_strategy = ReasoningStrategy.NONE  # No CoT/Budget — direct output
     system_prompt = DEVELOPER_SYSTEM_PROMPT
 
     async def run(self, context: DevLoopContext) -> DevLoopContext:
@@ -74,22 +67,24 @@ class DeveloperAgent(BaseAgent):
 
         user_prompt = (
             f"Task: {context.task}\n"
-            f"Repository: {context.repo}\n"
-            f"Iteration: {context.iteration}\n\n"
-            f"Spec:\n{context.spec or 'No spec provided.'}\n\n"
+            f"Repository: {context.repo}\n\n"
+            f"Spec:\n{context.spec or 'Implement the task directly.'}\n\n"
             f"Design decisions:\n"
             + "\n".join(f"- {d}" for d in context.design_decisions)
-            + "\n\nExisting file contents:\n"
-            + "\n".join(
+        )
+
+        if file_contents:
+            user_prompt += "\n\nExisting file contents:\n" + "\n".join(
                 f"--- {path} ---\n{content}" for path, content in file_contents.items()
             )
-        )
 
         if context.issues_found:
             user_prompt += "\n\nIssues to fix:\n" + "\n".join(
                 f"- [{i.severity}] {i.description} ({i.file or 'unknown'})"
                 for i in context.issues_found
             )
+
+        user_prompt += "\n\nOutput ONLY the JSON with code_changes. No other text."
 
         result = await self._call_llm(user_prompt)
         context.code_changes = self._parse_changes(result)
@@ -98,10 +93,9 @@ class DeveloperAgent(BaseAgent):
         return context
 
     async def run_retry(self, context: DevLoopContext) -> DevLoopContext:
-        """Retry with a stronger prompt when no changes were produced."""
+        """Retry with a forced prompt when no changes were produced."""
         user_prompt = (
             f"Task: {context.task}\n"
-            f"Repository: {context.repo}\n"
             f"Spec:\n{context.spec or 'Implement the task directly.'}\n\n"
             f"{RETRY_PROMPT}"
         )
@@ -111,51 +105,52 @@ class DeveloperAgent(BaseAgent):
         return context
 
     async def _call_llm(self, user_prompt: str) -> str:
+        """Direct LLM call with NO reasoning engine wrapper — pure completion."""
         from app.core.config import settings
         from app.providers.registry import get_provider
-        from app.reasoning.engine import ReasoningEngine
-        from app.providers.base import LLMMessage
+        from app.providers.base import LLMMessage, LLMRequest
 
         provider = get_provider("custom", settings.custom_api_key, settings.custom_base_url)
-        engine = ReasoningEngine(provider=provider, model=self.model)
 
-        cot_system = (
-            "Before writing any code, think step-by-step about what changes are needed "
-            "and why. Wrap your reasoning in <thinking>...</thinking> tags.\n\n"
-            + self.system_prompt
+        req = LLMRequest(
+            messages=[
+                LLMMessage(role="system", content=self.system_prompt),
+                LLMMessage(role="user", content=user_prompt),
+            ],
+            model=self.model,
+            temperature=0.1,  # Low temp for structured output
+            max_tokens=4096,
+            stream=True,
         )
 
         result = ""
-        async for event in engine.run(
-            messages=[
-                LLMMessage(role="system", content=cot_system),
-                LLMMessage(role="user", content=user_prompt),
-            ],
-            strategy=self.reasoning_strategy,
-        ):
-            if event.get("event") == "content_delta":
-                chunk = event.get("data", {}).get("content", "")
-                result += chunk
-                await self._emit_thinking(chunk)
+        async for chunk in provider.stream(req):
+            if chunk.content:
+                result += chunk.content
+                await self._emit_thinking(chunk.content)
         return result
 
     @staticmethod
     def _parse_changes(result: str) -> list[CodeChange]:
-        # Strip thinking tags if present
-        import re
+        # Strip thinking tags and markdown fences
         cleaned = re.sub(r'<thinking>.*?</thinking>', '', result, flags=re.DOTALL).strip()
-        # Try to find JSON in the output
+        cleaned = cleaned.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+
+        # Try direct parse
         try:
             parsed = json.loads(cleaned)
             return [CodeChange(**c) for c in parsed.get("code_changes", [])]
-        except json.JSONDecodeError:
-            # Try to find JSON block within the text
-            match = re.search(r'\{[\s\S]*"code_changes"[\s\S]*\}', cleaned)
-            if match:
-                try:
-                    parsed = json.loads(match.group())
-                    return [CodeChange(**c) for c in parsed.get("code_changes", [])]
-                except json.JSONDecodeError:
-                    pass
-            logger.warning("Developer output was not valid JSON")
-            return []
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+        # Try to find JSON block within the text
+        match = re.search(r'\{[\s\S]*"code_changes"\s*:\s*\[[\s\S]*\]\s*\}', cleaned)
+        if match:
+            try:
+                parsed = json.loads(match.group())
+                return [CodeChange(**c) for c in parsed.get("code_changes", [])]
+            except (json.JSONDecodeError, AttributeError):
+                pass
+
+        logger.warning("Developer output was not valid JSON: %s", cleaned[:200])
+        return []
