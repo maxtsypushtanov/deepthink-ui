@@ -30,6 +30,73 @@ router = APIRouter()
 _session_contexts: dict[str, SessionContext] = {}
 
 
+# ── Calendar action parser ──
+
+async def _parse_calendar_action(text: str) -> dict | None:
+    """Extract and execute calendar action from LLM response text."""
+    import re
+    from app.db import calendar as cal_db
+
+    try:
+        # Try 1: find JSON with calendar_action key
+        match = re.search(r'\{[^{}]*"calendar_action"\s*:\s*"[^"]*"[^{}]*\}', text)
+        if match:
+            data = json.loads(match.group())
+            return await _execute_calendar_action(data, cal_db)
+
+        # Try 2: find any JSON with title + start_time (model may use different key names)
+        for m in re.finditer(r'\{[^{}]+\}', text):
+            try:
+                data = json.loads(m.group())
+                if data.get("title") and data.get("start_time") and data.get("end_time"):
+                    data["calendar_action"] = data.get("calendar_action", "create")
+                    return await _execute_calendar_action(data, cal_db)
+            except json.JSONDecodeError:
+                continue
+
+        # Try 3: regex extract title and ISO datetime from text
+        title_match = re.search(r'"title"\s*:\s*"([^"]+)"', text)
+        start_match = re.search(r'"start_time"\s*:\s*"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"', text)
+        end_match = re.search(r'"end_time"\s*:\s*"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"', text)
+
+        if title_match and start_match and end_match:
+            ev = await cal_db.create_event(
+                title=title_match.group(1),
+                start_time=start_match.group(1),
+                end_time=end_match.group(1),
+            )
+            return {"action": "created", "event": ev}
+
+    except Exception:
+        pass
+    return None
+
+
+async def _execute_calendar_action(data: dict, cal_db) -> dict | None:
+    action = data.get("calendar_action", "create")
+    if action == "create" and data.get("title") and data.get("start_time") and data.get("end_time"):
+        ev = await cal_db.create_event(
+            title=data["title"],
+            start_time=data["start_time"],
+            end_time=data["end_time"],
+            description=data.get("description", ""),
+        )
+        return {"action": "created", "event": ev}
+    elif action == "delete" and data.get("event_id"):
+        ok = await cal_db.delete_event(data["event_id"])
+        return {"action": "deleted", "event_id": data["event_id"], "ok": ok}
+    elif action == "update" and data.get("event_id"):
+        ev = await cal_db.update_event(
+            data["event_id"],
+            title=data.get("title"),
+            start_time=data.get("start_time"),
+            end_time=data.get("end_time"),
+            description=data.get("description"),
+        )
+        return {"action": "updated", "event": ev}
+    return None
+
+
 # ── Calendar-mode direct streaming ──
 
 async def _calendar_event_stream(messages, provider, req, conversation_id):
@@ -59,7 +126,7 @@ async def _calendar_event_stream(messages, provider, req, conversation_id):
         messages=messages,
         model=req.model,
         temperature=0.3,
-        max_tokens=req.max_tokens,
+        max_tokens=max(req.max_tokens, 2048),  # Calendar needs more tokens for reasoning models
         stream=True,
     )
 
@@ -89,36 +156,7 @@ async def _calendar_event_stream(messages, provider, req, conversation_id):
     )
 
     # Parse calendar actions from response
-    calendar_result = None
-    try:
-        import re
-        from app.db import calendar as cal_db
-        match = re.search(r'\{[^{}]*"calendar_action"[^{}]*\}', full_content)
-        if match:
-            data = json.loads(match.group())
-            action = data.get("calendar_action")
-            if action == "create" and data.get("title") and data.get("start_time") and data.get("end_time"):
-                ev = await cal_db.create_event(
-                    title=data["title"],
-                    start_time=data["start_time"],
-                    end_time=data["end_time"],
-                    description=data.get("description", ""),
-                )
-                calendar_result = {"action": "created", "event": ev}
-            elif action == "delete" and data.get("event_id"):
-                ok = await cal_db.delete_event(data["event_id"])
-                calendar_result = {"action": "deleted", "event_id": data["event_id"], "ok": ok}
-            elif action == "update" and data.get("event_id"):
-                ev = await cal_db.update_event(
-                    data["event_id"],
-                    title=data.get("title"),
-                    start_time=data.get("start_time"),
-                    end_time=data.get("end_time"),
-                    description=data.get("description"),
-                )
-                calendar_result = {"action": "updated", "event": ev}
-    except Exception:
-        pass
+    calendar_result = await _parse_calendar_action(full_content)
 
     done_data: dict = {}
     if calendar_result:
@@ -341,35 +379,7 @@ async def chat(req: ChatRequest):
         # Auto-detect calendar actions in response
         calendar_result = None
         if req.calendar_mode:
-            try:
-                import re
-                from app.db import calendar as cal_db
-                match = re.search(r'\{[\s\S]*"calendar_action"[\s\S]*?\}', full_content)
-                if match:
-                    data = json.loads(match.group())
-                    action = data.get("calendar_action")
-                    if action == "create" and data.get("title") and data.get("start_time") and data.get("end_time"):
-                        ev = await cal_db.create_event(
-                            title=data["title"],
-                            start_time=data["start_time"],
-                            end_time=data["end_time"],
-                            description=data.get("description", ""),
-                        )
-                        calendar_result = {"action": "created", "event": ev}
-                    elif action == "delete" and data.get("event_id"):
-                        ok = await cal_db.delete_event(data["event_id"])
-                        calendar_result = {"action": "deleted", "event_id": data["event_id"], "ok": ok}
-                    elif action == "update" and data.get("event_id"):
-                        ev = await cal_db.update_event(
-                            data["event_id"],
-                            title=data.get("title"),
-                            start_time=data.get("start_time"),
-                            end_time=data.get("end_time"),
-                            description=data.get("description"),
-                        )
-                        calendar_result = {"action": "updated", "event": ev}
-            except Exception:
-                pass
+            calendar_result = await _parse_calendar_action(full_content)
 
         done_data: dict = {}
         if calendar_result:
