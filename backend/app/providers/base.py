@@ -94,7 +94,7 @@ class BaseLLMProvider(ABC):
         choice = choices[0]
         message = choice.get("message") or {}
         return LLMResponse(
-            content=message.get("content", ""),
+            content=message.get("content") or message.get("reasoning_content") or "",
             finish_reason=choice.get("finish_reason", "stop"),
             usage=data.get("usage", {}),
             model=data.get("model", req.model),
@@ -128,7 +128,7 @@ class BaseLLMProvider(ABC):
                     choice = choices[0]
                     delta = choice.get("delta", {})
                     yield LLMChunk(
-                        content=delta.get("content", ""),
+                        content=delta.get("content") or delta.get("reasoning_content") or "",
                         finish_reason=choice.get("finish_reason"),
                         usage=data.get("usage", {}),
                     )

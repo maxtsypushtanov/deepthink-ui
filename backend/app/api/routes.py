@@ -30,6 +30,103 @@ router = APIRouter()
 _session_contexts: dict[str, SessionContext] = {}
 
 
+# ── Calendar-mode direct streaming ──
+
+async def _calendar_event_stream(messages, provider, req, conversation_id):
+    """Direct LLM streaming for calendar mode — no reasoning engine, preserves system prompt."""
+    from app.providers.base import LLMRequest
+
+    yield {
+        "event": "conversation",
+        "data": json.dumps({"conversation_id": conversation_id}),
+    }
+
+    yield {
+        "event": "strategy_selected",
+        "data": json.dumps({
+            "strategy": "none",
+            "intent": "calendar",
+            "domain": "calendar",
+            "label": "Календарь",
+            "persona_preview": "Ассистент календаря",
+            "persona_detail": "Режим календаря",
+        }),
+    }
+
+    yield {"event": "thinking_start", "data": json.dumps({"strategy": "calendar"})}
+
+    llm_req = LLMRequest(
+        messages=messages,
+        model=req.model,
+        temperature=0.3,
+        max_tokens=req.max_tokens,
+        stream=True,
+    )
+
+    full_content = ""
+    try:
+        async for chunk in provider.stream(llm_req):
+            if chunk.content:
+                full_content += chunk.content
+                yield {
+                    "event": "content_delta",
+                    "data": json.dumps({"content": chunk.content}, ensure_ascii=False),
+                }
+    except Exception as e:
+        yield {"event": "error", "data": json.dumps({"error": str(e)})}
+        return
+
+    yield {
+        "event": "thinking_end",
+        "data": json.dumps({"strategy": "calendar", "steps": [], "total_duration_ms": 0}),
+    }
+
+    # Save assistant message
+    await db.add_message(
+        conversation_id, "assistant", full_content,
+        model=req.model, provider=req.provider,
+        reasoning_strategy="calendar",
+    )
+
+    # Parse calendar actions from response
+    calendar_result = None
+    try:
+        import re
+        from app.db import calendar as cal_db
+        match = re.search(r'\{[^{}]*"calendar_action"[^{}]*\}', full_content)
+        if match:
+            data = json.loads(match.group())
+            action = data.get("calendar_action")
+            if action == "create" and data.get("title") and data.get("start_time") and data.get("end_time"):
+                ev = await cal_db.create_event(
+                    title=data["title"],
+                    start_time=data["start_time"],
+                    end_time=data["end_time"],
+                    description=data.get("description", ""),
+                )
+                calendar_result = {"action": "created", "event": ev}
+            elif action == "delete" and data.get("event_id"):
+                ok = await cal_db.delete_event(data["event_id"])
+                calendar_result = {"action": "deleted", "event_id": data["event_id"], "ok": ok}
+            elif action == "update" and data.get("event_id"):
+                ev = await cal_db.update_event(
+                    data["event_id"],
+                    title=data.get("title"),
+                    start_time=data.get("start_time"),
+                    end_time=data.get("end_time"),
+                    description=data.get("description"),
+                )
+                calendar_result = {"action": "updated", "event": ev}
+    except Exception:
+        pass
+
+    done_data: dict = {}
+    if calendar_result:
+        done_data["calendar_result"] = calendar_result
+
+    yield {"event": "done", "data": json.dumps(done_data, ensure_ascii=False)}
+
+
 # ── Chat (SSE streaming) ──
 
 @router.post("/api/chat")
@@ -97,23 +194,22 @@ async def chat(req: ChatRequest):
         ) or "Нет встреч"
 
         cal_context = (
-            f"РЕЖИМ КАЛЕНДАРЯ. У тебя есть полный доступ к календарю пользователя.\n"
-            f"Сегодня: {today}\n\n"
-            f"Встречи на ближайшие 2 недели:\n{events_text}\n\n"
-            f"Свободные слоты сегодня ({today}):\n"
-            + ("\n".join(f"  {s['start']} — {s['end']}" for s in free_today) or "  Весь день свободен")
-            + f"\n\nСвободные слоты завтра ({tomorrow}):\n"
-            + ("\n".join(f"  {s['start']} — {s['end']}" for s in free_tomorrow) or "  Весь день свободен")
-            + '\n\nДЕЙСТВИЯ С КАЛЕНДАРЁМ:\n'
-            'Создать: {"calendar_action": "create", "title": "...", "start_time": "YYYY-MM-DDTHH:MM:SS", "end_time": "YYYY-MM-DDTHH:MM:SS", "description": "..."}\n'
-            'Удалить: {"calendar_action": "delete", "event_id": "id"}\n'
-            'Изменить: {"calendar_action": "update", "event_id": "id", "title": "...", "start_time": "...", "end_time": "...", "description": "..."}\n\n'
-            'Включай JSON-блок действия в ответ — оно выполнится автоматически.\n'
-            'Если пользователь просит создать встречу — предложи 2-3 варианта из свободных слотов.\n'
-            'Если спрашивает про расписание — ответь на основе данных выше.\n'
-            'Отвечай на русском, кратко.'
+            f"Ты ассистент календаря. Сегодня: {today}\n"
+            f"Встречи: {events_text}\n"
+            f"Свободно сегодня: " + (", ".join(f"{s['start'][-8:-3]}—{s['end'][-8:-3]}" for s in free_today) or "весь день")
+            + f"\nСвободно завтра: " + (", ".join(f"{s['start'][-8:-3]}—{s['end'][-8:-3]}" for s in free_tomorrow) or "весь день")
+            + '\n\nКогда нужно создать/удалить/изменить встречу, ОБЯЗАТЕЛЬНО включи в ответ JSON:'
+            '\nСоздать: {"calendar_action":"create","title":"...","start_time":"YYYY-MM-DDTHH:MM:SS","end_time":"YYYY-MM-DDTHH:MM:SS","description":"..."}'
+            '\nУдалить: {"calendar_action":"delete","event_id":"..."}'
+            '\nИзменить: {"calendar_action":"update","event_id":"...","title":"...","start_time":"...","end_time":"..."}'
+            '\n\nСначала напиши JSON действия, потом краткий ответ пользователю.'
+            '\nОтвечай на русском, максимально кратко (2-3 предложения).'
         )
         messages.insert(0, LLMMessage(role="system", content=cal_context))
+
+    # Calendar mode: bypass reasoning engine, use direct streaming
+    if req.calendar_mode:
+        return EventSourceResponse(_calendar_event_stream(messages, provider, req, conversation_id))
 
     strategy = ReasoningStrategy(req.reasoning_strategy)
     engine = ReasoningEngine(provider, req.model)
