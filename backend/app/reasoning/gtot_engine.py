@@ -24,6 +24,29 @@ logger = logging.getLogger(__name__)
 EventCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
+def _extract_json(raw: str | None) -> Any:
+    """Safely extract JSON from an LLM response, stripping markdown fences."""
+    if not raw:
+        return None
+    text = raw.strip()
+    # Strip markdown code fences
+    if text.startswith("```"):
+        text = text.removeprefix("```json").removeprefix("```")
+        text = text.removesuffix("```").strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Try to find a JSON array or object in the text
+        import re
+        match = re.search(r'[\[{][\s\S]*[\]}]', text)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+    return None
+
+
 # ── Data structures ──
 
 class NodeStatus(str, Enum):
@@ -196,12 +219,21 @@ class GToTEngine:
             stream=False,
         ))
 
+        plans = _extract_json(resp.content)
+        if not plans:
+            logger.warning("GToT plan_exploration: empty or unparseable LLM response, using fallback")
+            return [ThoughtNode(
+                id=uuid.uuid4().hex[:8],
+                tool_name="search_code",
+                tool_args={"q": f"{task} repo:{repo}"},
+                reasoning="Fallback: LLM returned empty response",
+            )]
+
         nodes: list[ThoughtNode] = []
-        try:
-            plans = json.loads(resp.content)
-            if not isinstance(plans, list):
-                plans = [plans]
-            for plan in plans[:self.max_breadth]:
+        if not isinstance(plans, list):
+            plans = [plans]
+        for plan in plans[:self.max_breadth]:
+            try:
                 node = ThoughtNode(
                     id=uuid.uuid4().hex[:8],
                     tool_name=plan["tool"],
@@ -209,8 +241,16 @@ class GToTEngine:
                     reasoning=plan.get("reasoning", ""),
                 )
                 nodes.append(node)
-        except (json.JSONDecodeError, KeyError) as e:
-            logger.warning("GToT plan_exploration failed to parse: %s", e)
+            except (KeyError, TypeError) as e:
+                logger.debug("Skipping malformed plan node: %s", e)
+
+        if not nodes:
+            return [ThoughtNode(
+                id=uuid.uuid4().hex[:8],
+                tool_name="search_code",
+                tool_args={"q": f"{task} repo:{repo}"},
+                reasoning="Fallback: could not parse LLM plan",
+            )]
 
         return nodes
 
@@ -286,9 +326,13 @@ class GToTEngine:
                     max_tokens=100,
                     stream=False,
                 ))
-                parsed = json.loads(resp.content)
-                node.score = float(parsed.get("score", 0.5))
-                node.score_reason = parsed.get("reason", "")
+                parsed = _extract_json(resp.content)
+                if parsed and isinstance(parsed, dict):
+                    node.score = float(parsed.get("score", 0.5))
+                    node.score_reason = parsed.get("reason", "")
+                else:
+                    node.score = 0.5
+                    node.score_reason = "could not parse score"
             except Exception:
                 node.score = 0.5
                 node.score_reason = "scoring failed — default"
@@ -342,7 +386,7 @@ class GToTEngine:
                     max_tokens=512,
                     stream=False,
                 ))
-                expansions = json.loads(resp.content)
+                expansions = _extract_json(resp.content)
                 if not isinstance(expansions, list) or len(expansions) == 0:
                     continue
 
