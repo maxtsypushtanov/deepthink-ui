@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
     conversation_id: str | None = None
-    message: str
-    model: str = "openai/gpt-4o-mini"
+    message: str = Field(max_length=100000)
+    model: str = "google/gemini-3.1-flash-lite-preview"
     provider: str = "openrouter"
-    reasoning_strategy: str = "auto"
-    temperature: float = 0.7
+    reasoning_strategy: Literal["auto", "none", "cot", "budget_forcing", "best_of_n", "tree_of_thoughts", "persona_council", "rubber_duck", "socratic"] = "auto"
+    # temperature: reserved for future use
     max_tokens: int = 4096
     # Strategy-specific params
     budget_rounds: int = Field(default=3, ge=1, le=10)
@@ -20,6 +22,7 @@ class ChatRequest(BaseModel):
     tree_depth: int = Field(default=2, ge=1, le=4)
     clarification_context: str | None = None
     calendar_mode: bool = False
+    github_mode: bool = False
 
 
 class ConversationCreate(BaseModel):
@@ -52,24 +55,3 @@ class ProviderSettingsRequest(BaseModel):
     api_key: str
     base_url: str = ""
     enabled: bool = True
-
-
-class ConversationResponse(BaseModel):
-    id: str
-    title: str
-    folder_id: str | None = None
-    created_at: str
-    updated_at: str
-
-
-class MessageResponse(BaseModel):
-    id: str
-    conversation_id: str
-    role: str
-    content: str
-    model: str | None = None
-    provider: str | None = None
-    reasoning_strategy: str | None = None
-    reasoning_trace: str | None = None
-    tokens_used: int = 0
-    created_at: str

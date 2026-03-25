@@ -1,22 +1,22 @@
 import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
-import { PipelineView } from '@/components/Pipeline/PipelineView';
 import { CalendarView } from '@/components/Calendar/CalendarView';
+import { CommandPalette } from '@/components/CommandPalette';
+import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { useThemeStore } from '@/stores/themeStore';
 import { useChatStore } from '@/stores/chatStore';
-import { usePipelineStore } from '@/stores/pipelineStore';
 import { cn } from '@/lib/utils';
-import { MessageSquare, GitBranch, Calendar } from 'lucide-react';
+import { MessageSquare, Calendar } from 'lucide-react';
 
-type Tab = 'chat' | 'pipeline' | 'calendar';
+type Tab = 'chat' | 'calendar';
 
 export default function App() {
   const theme = useThemeStore((s) => s.mode);
   const loadConversations = useChatStore((s) => s.loadConversations);
   const createConversation = useChatStore((s) => s.createConversation);
-  const pipelineStatus = usePipelineStore((s) => s.status);
   const [activeTab, setActiveTab] = useState<Tab>('chat');
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -25,12 +25,6 @@ export default function App() {
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
-
-  useEffect(() => {
-    if (pipelineStatus === 'running') {
-      setActiveTab('pipeline');
-    }
-  }, [pipelineStatus]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -47,25 +41,37 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKey);
   }, [createConversation]);
 
+  // Listen for custom events from CommandPalette
+  useEffect(() => {
+    const handleSwitchTab = (e: Event) => {
+      const tab = (e as CustomEvent).detail as Tab;
+      setActiveTab(tab);
+    };
+    const handleOpenSettings = () => {
+      setSettingsOpen(true);
+    };
+    window.addEventListener('deepthink:switch-tab', handleSwitchTab);
+    window.addEventListener('deepthink:open-settings', handleOpenSettings);
+    return () => {
+      window.removeEventListener('deepthink:switch-tab', handleSwitchTab);
+      window.removeEventListener('deepthink:open-settings', handleOpenSettings);
+    };
+  }, []);
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background">
       <Sidebar />
+      <CommandPalette />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Tab bar */}
-        <div className="flex items-center border-b border-border bg-card/50 px-2">
+        <div role="tablist" className="flex items-center gap-1 border-b border-border bg-card/50 px-3">
           <TabButton
             active={activeTab === 'chat'}
             onClick={() => setActiveTab('chat')}
             icon={<MessageSquare className="h-3.5 w-3.5" />}
             label="Чат"
-          />
-          <TabButton
-            active={activeTab === 'pipeline'}
-            onClick={() => setActiveTab('pipeline')}
-            icon={<GitBranch className="h-3.5 w-3.5" />}
-            label="Пайплайн"
-            badge={pipelineStatus === 'running'}
           />
           <TabButton
             active={activeTab === 'calendar'}
@@ -78,7 +84,6 @@ export default function App() {
         {/* Tab content */}
         <div className="flex-1 overflow-hidden">
           {activeTab === 'chat' && <ChatArea />}
-          {activeTab === 'pipeline' && <PipelineView />}
           {activeTab === 'calendar' && <CalendarView />}
         </div>
       </div>
@@ -101,18 +106,28 @@ function TabButton({
 }) {
   return (
     <button
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
       className={cn(
-        'flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors',
+        'relative flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors',
+        'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-0 rounded-t-md',
         active
-          ? 'border-primary text-foreground'
-          : 'border-transparent text-muted-foreground hover:text-foreground',
+          ? 'text-foreground'
+          : 'text-muted-foreground hover:text-foreground',
       )}
     >
       {icon}
-      {label}
+      <span className="whitespace-nowrap">{label}</span>
       {badge && (
-        <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-yellow-400" />
+        <span className="relative flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-yellow-400 opacity-75" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-yellow-400" />
+        </span>
+      )}
+      {/* Active indicator line */}
+      {active && (
+        <span className="absolute inset-x-0 -bottom-px h-0.5 bg-foreground rounded-full" />
       )}
     </button>
   );

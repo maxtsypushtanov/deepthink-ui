@@ -13,7 +13,7 @@
     --secondary: 220 12% 93%;
     --secondary-foreground: 220 10% 22%;
     --muted: 220 12% 93%;
-    --muted-foreground: 220 6% 50%;
+    --muted-foreground: 220 6% 44%;
     --accent: 220 12% 93%;
     --accent-foreground: 220 10% 22%;
     --destructive: 0 72% 55%;
@@ -34,7 +34,7 @@
     --secondary: 225 8% 15%;
     --secondary-foreground: 220 8% 82%;
     --muted: 225 8% 15%;
-    --muted-foreground: 220 6% 55%;
+    --muted-foreground: 220 6% 50%;
     --accent: 225 8% 15%;
     --accent-foreground: 220 8% 82%;
     --destructive: 0 55% 40%;
@@ -54,6 +54,12 @@
     @apply bg-background text-foreground;
     transition: background-color 0.3s ease, color 0.3s ease;
   }
+
+  /* Global focus-visible ring for keyboard navigation */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-ring/60 ring-offset-1 ring-offset-background;
+    border-radius: var(--radius);
+  }
 }
 
 /* Smooth theme transition for major elements */
@@ -70,6 +76,7 @@ body,
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -83,6 +90,18 @@ body,
 
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground));
+}
+
+/* Scroll shadow indicators */
+.scroll-shadow {
+  background:
+    linear-gradient(hsl(var(--card)) 30%, transparent) center top,
+    linear-gradient(transparent, hsl(var(--card)) 70%) center bottom,
+    radial-gradient(farthest-side at 50% 0, hsl(var(--border) / 0.3), transparent) center top,
+    radial-gradient(farthest-side at 50% 100%, hsl(var(--border) / 0.3), transparent) center bottom;
+  background-repeat: no-repeat;
+  background-size: 100% 20px, 100% 20px, 100% 8px, 100% 8px;
+  background-attachment: local, local, scroll, scroll;
 }
 
 /* Markdown prose overrides */
@@ -115,15 +134,77 @@ body,
   @apply bg-transparent p-0;
 }
 
-/* Thinking panel animation */
+/* ── Animations ── */
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-scale {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes quote-in {
+  from { opacity: 0; max-height: 0; transform: translateY(-4px); }
+  to   { opacity: 1; max-height: 120px; transform: translateY(0); }
+}
+
+.animate-quote-in {
+  animation: quote-in 0.25s ease-out both;
+  overflow: hidden;
+}
+
 @keyframes thinking-pulse {
-  0%, 100% { opacity: 0.5; }
+  0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
 }
 
-.thinking-dot {
-  animation: thinking-pulse 1.5s ease-in-out infinite;
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
-.thinking-dot:nth-child(2) { animation-delay: 0.2s; }
-.thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out both;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-fade-in-scale {
+  animation: fade-in-scale 0.2s ease-out both;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out both;
+}
+
+.thinking-dot {
+  animation: thinking-pulse 1.2s ease-in-out infinite;
+}
+
+.thinking-dot:nth-child(2) { animation-delay: 0.15s; }
+.thinking-dot:nth-child(3) { animation-delay: 0.3s; }
+
+.animate-blink-cursor {
+  animation: blink-cursor 0.8s step-end infinite;
+}
+
+/* ── Selection ── */
+::selection {
+  background: hsl(var(--primary) / 0.2);
+  color: hsl(var(--foreground));
+}

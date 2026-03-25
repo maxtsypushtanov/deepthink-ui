@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-import json
+import logging
+import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import AsyncIterator
 
-from app.providers.base import BaseLLMProvider, LLMMessage, LLMRequest, LLMResponse, LLMChunk
+from collections import Counter
+
+from app.providers.base import BaseLLMProvider, LLMMessage, LLMRequest
+
+logger = logging.getLogger(__name__)
 
 
 # ── Valid Domains ──
@@ -27,6 +32,9 @@ class ReasoningStrategy(str, Enum):
     BUDGET_FORCING = "budget_forcing"
     BEST_OF_N = "best_of_n"
     TREE_OF_THOUGHTS = "tree_of_thoughts"
+    PERSONA_COUNCIL = "persona_council"
+    RUBBER_DUCK = "rubber_duck"
+    SOCRATIC = "socratic"
     AUTO = "auto"
 
 
@@ -65,7 +73,7 @@ class SessionContext:
 
     def update(self, domain: str) -> None:
         self.detected_domains.append(domain)
-        self.dominant_domain = max(set(self.detected_domains), key=self.detected_domains.count)
+        self.dominant_domain = Counter(self.detected_domains).most_common(1)[0][0]
         self.conversation_turn += 1
 
     def needs_retune(self) -> bool:
@@ -92,6 +100,11 @@ BUDGET_FORCING_CONTINUATION = """Продолжи анализ — ты ещё �
 — Рассмотри альтернативные точки зрения
 — Добавь нюансы, которые упустил
 Продолжай рассуждения в <thinking></thinking>, затем дай обновлённый краткий ответ."""
+
+BUDGET_FORCING_FINAL = """На основе всех предыдущих раундов анализа дай ФИНАЛЬНЫЙ ответ.
+— НЕ используй теги <thinking>
+— НЕ повторяй рассуждения — они уже выполнены
+— Дай только чёткий, структурированный ответ на языке пользователя"""
 
 DOMAIN_CLASSIFIER_PROMPT = """Классифицируй следующее сообщение в одну из категорий.
 Допустимые категории: software_engineering, mathematics, medicine, law, finance, science, creative_writing, business, philosophy, general
@@ -134,23 +147,24 @@ DEEPTHINK_GLOBAL_PROMPT = """Ты — DeepThink, интеллектуальны�
 — Никогда не представляйся именем базовой модели.
 
 ГЛАВНЫЙ ПРИНЦИП — «Думай глубоко, отвечай кратко»:
-— Рассуждения внутри <thinking></thinking> должны быть мощными, детальными, многошаговыми — исследуй задачу на всю глубину.
+— Рассуждения ТОЛЬКО внутри <thinking></thinking>. ВСЯ аналитика, размышления, планирование — ТОЛЬКО внутри этих тегов.
 — Финальный ответ ПОСЛЕ </thinking> — лаконичный, чёткий, легко читаемый. Никаких полотен текста.
-— Пользователь видит компактный результат и может развернуть рассуждения, если хочет понять ход мысли.
-— Это ключевая философия DeepThink: вся мощь мышления скрыта в рассуждениях, а на поверхности — ясность.
+— Пользователь видит ТОЛЬКО то, что идёт ПОСЛЕ тега </thinking>.
+— НИКОГДА не пиши рассуждения вне тегов <thinking>. Ни на каком языке. Ни одного слова анализа вне тегов.
+— ЗАПРЕЩЕНО писать "User says...", "Let me think...", "I need to...", "According to..." вне <thinking>.
 
 ФОРМАТ ОТВЕТА:
-— Начни с <thinking>: анализируй, разбирай на части, рассматривай альтернативы, проверяй себя. Чем сложнее задача — тем глубже рассуждения.
-— Заверши </thinking>, затем дай финальный ответ.
-— Финальный ответ: 2–8 предложений для простых вопросов, структурированные пункты для сложных. Без вступлений, без «конечно», без воды.
-— Если ответ требует списка — короткие пункты, не абзацы.
+— <thinking>здесь весь анализ, рассуждения, проверка, планирование</thinking>
+— Затем СРАЗУ финальный ответ на языке пользователя. Без преамбул.
+— Финальный ответ: 2–8 предложений для простых вопросов, структурированные пункты для сложных.
+— Если ответ требует списка — короткие пункты.
 — Если ответ требует кода — только код с минимальным комментарием.
-— Если ответ требует объяснения — суть, потом детали только по запросу.
 
 ПОВЕДЕНИЕ:
 — Всегда отвечай на языке пользователя.
 — Адаптируй глубину и терминологию под уровень собеседника.
-— Будь честен в ограничениях."""
+— Будь честен в ограничениях.
+— ПОСЛЕ </thinking> пиши ТОЛЬКО на языке пользователя. Если пользователь пишет на русском — отвечай ТОЛЬКО на русском."""
 
 
 # ── Persona Builder ──
@@ -167,6 +181,9 @@ STRATEGY_PERSONA_MAP = {
     "budget_forcing": {"reasoning_style": "Глубокая итеративная рефлексия с самокоррекцией", "intent_description": "Тщательно исследовать задачу в несколько проходов"},
     "best_of_n": {"reasoning_style": "Мульти-перспективный анализ с консенсусом", "intent_description": "Сравнить несколько подходов и найти лучший ответ"},
     "tree_of_thoughts": {"reasoning_style": "Систематическое исследование ветвей рассуждений", "intent_description": "Построить карту всех подходов и оценить каждый"},
+    "persona_council": {"reasoning_style": "Совет экспертов с разными ролями", "intent_description": "Рассмотреть задачу с нескольких экспертных точек зрения и синтезировать"},
+    "rubber_duck": {"reasoning_style": "Самообъяснение и самокоррекция через упрощение", "intent_description": "Объяснить просто, найти ошибки, исправить"},
+    "socratic": {"reasoning_style": "Самодопрос и синтез через ключевые подвопросы", "intent_description": "Раскрыть тему через сократический диалог с самим собой"},
     "auto": {"reasoning_style": "Адаптивный, зависит от сложности", "intent_description": "Решить задачу оптимально"},
 }
 
@@ -221,6 +238,9 @@ class PersonaBuilder:
             "budget_forcing": "Углублённый итеративный анализ",
             "best_of_n": "Мульти-перспективный анализ",
             "tree_of_thoughts": "Систематическое исследование дерева",
+            "persona_council": "Совет экспертов",
+            "rubber_duck": "Объясни и исправь",
+            "socratic": "Метод Сократа",
             "auto": "Адаптивное рассуждение",
         }
         return labels.get(strategy, "Рассуждение")
@@ -260,7 +280,6 @@ class ReasoningEngine:
     @staticmethod
     def _strip_thinking_tags(text: str) -> str:
         """Remove <thinking>...</thinking> blocks from final output."""
-        import re
         # Remove complete thinking blocks
         cleaned = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL)
         # Remove orphan opening/closing tags
@@ -268,9 +287,59 @@ class ReasoningEngine:
         return cleaned.strip()
 
     @staticmethod
+    def _strip_meta_text(text: str) -> str:
+        """Remove LLM meta-commentary, internal reasoning, and system prompt echoes."""
+        # Remove thinking blocks first
+        cleaned = ReasoningEngine._strip_thinking_tags(text)
+
+        # ── Phase 1: line-level patterns ──
+        line_patterns = [
+            r'^(?:User says|User\'s? (?:question|message|request|input))[\s:].*$',
+            r'^(?:Thinking|Let me think|Analyzing|Processing|Рассуждаю|Анализирую|Думаю)[\s:].*$',
+            r'^(?:System|Instructions?|Context|Note to self)[\s:].*$',
+            r'^(?:Step \d+|Шаг \d+)[\s:].*$',
+            r'^\[(?:THINKING|REASONING|ANALYSIS|РАССУЖДЕНИЕ|INTERNAL)\].*$',
+            r'^(?:I need to|I should|I will|I\'ll|Let me|We need to|We should|According to)[\s].*$',
+            r'^(?:The user|This user|They want|They\'re asking)[\s].*$',
+            r'^(?:OK so|Okay so|Alright|Hmm|Wait,)[\s].*$',
+            r'^(?:Based on the (?:instructions|guidelines|rules|context))[\s,].*$',
+            r'^(?:My (?:task|job|role|goal) (?:is|here))[\s].*$',
+        ]
+        for pattern in line_patterns:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.MULTILINE | re.IGNORECASE)
+
+        # ── Phase 2: strip leading English reasoning block before Cyrillic answer ──
+        # Many models dump reasoning in English then answer in Russian.
+        # Detect: if text starts with non-Cyrillic lines and Cyrillic appears later,
+        # strip everything before the first Cyrillic paragraph.
+        has_cyrillic = bool(re.search(r'[а-яА-ЯёЁ]', cleaned))
+        if has_cyrillic:
+            lines = cleaned.split('\n')
+            first_cyrillic_idx = None
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                # A line is "Cyrillic" if it contains Cyrillic characters
+                if re.search(r'[а-яА-ЯёЁ]', stripped):
+                    first_cyrillic_idx = i
+                    break
+
+            if first_cyrillic_idx is not None and first_cyrillic_idx > 0:
+                # Check if lines before are purely English reasoning (no Cyrillic at all)
+                prefix_lines = lines[:first_cyrillic_idx]
+                prefix_text = '\n'.join(prefix_lines).strip()
+                if prefix_text and not re.search(r'[а-яА-ЯёЁ]', prefix_text):
+                    # All lines before first Cyrillic are English-only — strip them
+                    cleaned = '\n'.join(lines[first_cyrillic_idx:])
+
+        # ── Phase 3: cleanup ──
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
+        return cleaned
+
+    @staticmethod
     def _clean_step_content(text: str) -> str:
         """Strip thinking tags from step display content."""
-        import re
         cleaned = re.sub(r'<thinking>.*?</thinking>', lambda m: m.group(0)[len('<thinking>'):-len('</thinking>')], text, flags=re.DOTALL)
         cleaned = cleaned.replace('<thinking>', '').replace('</thinking>', '')
         return cleaned.strip()
@@ -278,7 +347,6 @@ class ReasoningEngine:
     @staticmethod
     def _check_clarification(text: str) -> tuple[bool, str]:
         """Check if model is asking for clarification."""
-        import re
         patterns = [
             r'\[УТОЧНЕНИЕ\]:\s*(.+)',
             r'УТОЧНЕНИЕ:\s*(.+)',
@@ -308,18 +376,19 @@ class ReasoningEngine:
         Run reasoning and yield SSE-compatible events.
         Events: strategy_selected, thinking_start, thinking_step, thinking_end, content_delta, done
         """
+        messages = list(messages)  # Work on a copy to avoid mutating the caller's list
+
         # Detect domain (and optionally classify complexity) in parallel
         if strategy == ReasoningStrategy.AUTO:
-            # Check for ambiguity first
-            is_ambiguous, clarification_q = await self._check_ambiguity(messages)
-            if is_ambiguous:
-                yield {"event": "clarification_needed", "data": {"question": clarification_q}}
-                return
-
-            classified_strategy, domain = await asyncio.gather(
+            # Run ambiguity check, complexity classification, and domain detection in parallel
+            (is_ambiguous, clarification_q), classified_strategy, domain = await asyncio.gather(
+                self._check_ambiguity(messages),
                 self._classify_complexity(messages),
                 self._detect_domain(messages),
             )
+            if is_ambiguous:
+                yield {"event": "clarification_needed", "data": {"question": clarification_q}}
+                return
             strategy = classified_strategy
         else:
             domain = await self._detect_domain(messages)
@@ -375,6 +444,18 @@ class ReasoningEngine:
             async for chunk in self._run_tree_of_thoughts(messages, steps, tree_breadth, tree_depth, persona):
                 yield chunk
 
+        elif strategy == ReasoningStrategy.PERSONA_COUNCIL:
+            async for chunk in self._run_persona_council(messages, steps, persona):
+                yield chunk
+
+        elif strategy == ReasoningStrategy.RUBBER_DUCK:
+            async for chunk in self._run_rubber_duck(messages, steps, persona):
+                yield chunk
+
+        elif strategy == ReasoningStrategy.SOCRATIC:
+            async for chunk in self._run_socratic(messages, steps, persona):
+                yield chunk
+
         elapsed = int((time.monotonic() - start) * 1000)
 
         yield {
@@ -399,11 +480,8 @@ class ReasoningEngine:
     # ── Strategy: Passthrough (no reasoning) ──
 
     async def _run_passthrough(self, messages: list[LLMMessage], persona: str) -> AsyncIterator[dict]:
-        if messages and messages[0].role == "system":
-            persona_messages = list(messages)
-        else:
-            persona_messages = [LLMMessage(role="system", content=persona)] + list(messages)
-        req = LLMRequest(messages=persona_messages, model=self.model)
+        # run() guarantees messages[0] is the system prompt
+        req = LLMRequest(messages=list(messages), model=self.model)
         async for chunk in self.provider.stream(req):
             if chunk.content:
                 yield {"event": "content_delta", "data": {"content": chunk.content}}
@@ -411,49 +489,73 @@ class ReasoningEngine:
     # ── Strategy: Chain-of-Thought Injection ──
 
     async def _run_cot(self, messages: list[LLMMessage], steps: list[ThinkingStep], persona: str) -> AsyncIterator[dict]:
-        if messages and messages[0].role == "system":
-            cot_messages = list(messages)
-            cot_messages[0] = LLMMessage(role="system", content=cot_messages[0].content + "\n\n" + COT_SYSTEM_PROMPT)
-        else:
-            cot_messages = [LLMMessage(role="system", content=persona + "\n\n" + COT_SYSTEM_PROMPT)] + list(messages)
+        # run() guarantees messages[0] is the system prompt
+        cot_messages = list(messages)
+        cot_messages[0] = LLMMessage(role="system", content=cot_messages[0].content + "\n\n" + COT_SYSTEM_PROMPT)
         req = LLMRequest(messages=cot_messages, model=self.model, temperature=0.3)
 
         step_start = time.monotonic()
-        full_response = ""
+        chunks: list[str] = []
 
+        # Buffer ALL content first (don't stream yet) — extract thinking before yielding
         async for chunk in self.provider.stream(req):
             if chunk.content:
-                full_response += chunk.content
-                yield {"event": "content_delta", "data": {"content": chunk.content}}
+                chunks.append(chunk.content)
 
+        full_response = "".join(chunks)
         step_ms = int((time.monotonic() - step_start) * 1000)
+
+        # Extract thinking content into panel
+        thinking_text = ""
+        answer_text = full_response
+        if "<thinking>" in full_response:
+            # Extract all thinking blocks
+            thinking_blocks = re.findall(r'<thinking>(.*?)</thinking>', full_response, flags=re.DOTALL)
+            thinking_text = "\n\n".join(b.strip() for b in thinking_blocks if b.strip())
+            # Remove thinking tags from answer
+            answer_text = re.sub(r'<thinking>.*?</thinking>', '', full_response, flags=re.DOTALL)
+            answer_text = answer_text.replace('<thinking>', '').replace('</thinking>', '').strip()
+
         steps.append(ThinkingStep(
             step_number=1,
             strategy="cot",
-            content="Применена система пошагового рассуждения",
+            content="Выстраиваю цепочку рассуждений",
             duration_ms=step_ms,
+            metadata={"type": "reasoning"},
         ))
 
-        # Extract thinking content if present
-        if "<thinking>" in full_response and "</thinking>" in full_response:
-            thinking = full_response.split("<thinking>")[1].split("</thinking>")[0].strip()
+        if thinking_text:
             steps.append(ThinkingStep(
                 step_number=2,
                 strategy="cot",
-                content=self._clean_step_content(thinking),
+                content="Проверяю логику ответа",
                 duration_ms=0,
-                metadata={"type": "extracted_thinking"},
+                metadata={"type": "extracted_thinking", "content": self._clean_step_content(thinking_text)},
             ))
+            yield {
+                "event": "thinking_step",
+                "data": {
+                    "step": 2,
+                    "label": "Ход мысли",
+                    "type": "extracted_thinking",
+                    "content": self._clean_step_content(thinking_text)[:500],
+                },
+            }
+
+        # Strip any remaining meta-text from the answer
+        answer_text = self._strip_meta_text(answer_text) if answer_text else ""
+
+        # Now stream ONLY the clean answer (without thinking content)
+        for chunk in self._chunk_text(answer_text):
+            yield {"event": "content_delta", "data": {"content": chunk}}
 
     # ── Strategy: Budget Forcing (s1-approach) ──
 
     async def _run_budget_forcing(
         self, messages: list[LLMMessage], steps: list[ThinkingStep], rounds: int, persona: str
     ) -> AsyncIterator[dict]:
-        if messages and messages[0].role == "system":
-            cot_messages = list(messages)
-        else:
-            cot_messages = [LLMMessage(role="system", content=persona)] + list(messages)
+        # run() guarantees messages[0] is the system prompt
+        cot_messages = list(messages)
 
         prev_round_content = ""
 
@@ -461,16 +563,29 @@ class ReasoningEngine:
             step_start = time.monotonic()
             is_last_round = (round_num == rounds - 1)
 
+            if round_num == 0:
+                yield {
+                    "event": "thinking_step",
+                    "data": {
+                        "step": 1,
+                        "label": "Анализирую запрос и формирую первичный ответ",
+                        "type": "reasoning",
+                        "content": "",
+                    },
+                }
+
             if round_num > 0:
-                # Append previous round output + deepening instruction
+                # Append previous round output + deepening/final instruction
                 cot_messages.append(LLMMessage(role="assistant", content=prev_round_content))
-                cot_messages.append(LLMMessage(role="user", content=BUDGET_FORCING_CONTINUATION))
+                continuation = BUDGET_FORCING_FINAL if is_last_round else BUDGET_FORCING_CONTINUATION
+                cot_messages.append(LLMMessage(role="user", content=continuation))
                 yield {
                     "event": "thinking_step",
                     "data": {
                         "step": round_num + 1,
-                        "label": f"Раунд углублённого анализа {round_num + 1}",
-                        "type": "budget_forcing",
+                        "label": f"Углубляю анализ — проход {round_num + 1}",
+                        "type": "reasoning",
+                        "content": "",
                     },
                 }
 
@@ -481,25 +596,44 @@ class ReasoningEngine:
                 max_tokens=2048,
             )
 
-            round_content = ""
+            round_chunks: list[str] = []
             async for chunk in self.provider.stream(req):
                 if chunk.content:
-                    round_content += chunk.content
+                    round_chunks.append(chunk.content)
                     # Only stream the last round to user
                     if is_last_round:
                         yield {"event": "content_delta", "data": {"content": chunk.content}}
+
+            round_content = "".join(round_chunks)
+
+            if not is_last_round:
+                # Stream intermediate round content to thinking panel
+                clean = self._clean_step_content(round_content)
+                yield {
+                    "event": "thinking_step",
+                    "data": {
+                        "step": round_num + 1,
+                        "label": f"Проверяю и дополняю рассуждения",
+                        "type": "reasoning",
+                        "content": clean[:600] if clean else "",
+                    },
+                }
 
             prev_round_content = round_content
             step_ms = int((time.monotonic() - step_start) * 1000)
 
             # Clean tags for step display
             clean = self._clean_step_content(round_content)
+            _round_label = (
+                "Анализирую запрос и формирую ответ" if round_num == 0
+                else f"Углубляю анализ — проход {round_num + 1}"
+            )
             steps.append(ThinkingStep(
                 step_number=round_num + 1,
                 strategy="budget_forcing",
-                content=clean[:500] + ("..." if len(clean) > 500 else ""),
+                content=_round_label,
                 duration_ms=step_ms,
-                metadata={"round": round_num + 1, "full_length": len(round_content)},
+                metadata={"type": "reasoning", "round": round_num + 1, "content": clean[:500]},
             ))
 
     # ── Strategy: Best-of-N ──
@@ -509,14 +643,11 @@ class ReasoningEngine:
     ) -> AsyncIterator[dict]:
         yield {
             "event": "thinking_step",
-            "data": {"step": 1, "label": f"Генерация {n} вариантов ответа...", "type": "best_of_n"},
+            "data": {"step": 1, "label": f"Генерирую {n} независимых вариантов ответа", "type": "candidate", "content": ""},
         }
 
-        # Generate N responses in parallel
-        if messages and messages[0].role == "system":
-            cot_messages = list(messages)
-        else:
-            cot_messages = [LLMMessage(role="system", content=persona)] + list(messages)
+        # Generate N responses in parallel (run() guarantees messages[0] is the system prompt)
+        cot_messages = list(messages)
 
         async def generate_candidate(idx: int) -> tuple[int, str]:
             req = LLMRequest(
@@ -543,9 +674,9 @@ class ReasoningEngine:
             steps.append(ThinkingStep(
                 step_number=idx + 1,
                 strategy="best_of_n",
-                content=clean[:300] + ("..." if len(clean) > 300 else ""),
+                content=f"Вариант {idx + 1} сформирован",
                 duration_ms=int((time.monotonic() - step_start) * 1000),
-                metadata={"candidate": idx + 1, "type": "candidate"},
+                metadata={"candidate": idx + 1, "type": "candidate", "content": clean[:400]},
             ))
 
         gen_ms = int((time.monotonic() - step_start) * 1000)
@@ -557,7 +688,7 @@ class ReasoningEngine:
 
         yield {
             "event": "thinking_step",
-            "data": {"step": n + 1, "label": "Голосование за лучший ответ...", "type": "voting"},
+            "data": {"step": n + 1, "label": "Сравниваю варианты и выбираю лучший", "type": "vote", "content": ""},
         }
 
         # Vote: ask the model to pick the best
@@ -579,9 +710,9 @@ class ReasoningEngine:
         steps.append(ThinkingStep(
             step_number=n + 2,
             strategy="best_of_n",
-            content=f"Выбран вариант {best_idx + 1} как лучший ответ",
+            content=f"Лучший вариант: #{best_idx + 1}",
             duration_ms=vote_ms,
-            metadata={"type": "vote", "winner": best_idx + 1, "vote_reasoning": vote_resp.content[:300]},
+            metadata={"type": "vote", "winner": best_idx + 1, "content": vote_resp.content[:300]},
         ))
 
         # Stream the best answer
@@ -598,7 +729,7 @@ class ReasoningEngine:
 
         yield {
             "event": "thinking_step",
-            "data": {"step": 1, "label": "Построение дерева рассуждений...", "type": "tree_init"},
+            "data": {"step": 1, "label": "Строю дерево подходов к решению", "type": "reasoning", "content": ""},
         }
 
         # Level 0: Generate initial thought branches
@@ -610,8 +741,9 @@ class ReasoningEngine:
                 "event": "thinking_step",
                 "data": {
                     "step": step_num,
-                    "label": f"Глубина {level + 1}: исследование {breadth} ветвей...",
-                    "type": "tree_explore",
+                    "label": f"Исследую {breadth} направлений на глубине {level + 1}",
+                    "type": "branch",
+                    "content": "",
                 },
             }
 
@@ -649,7 +781,7 @@ class ReasoningEngine:
                 steps.append(ThinkingStep(
                     step_number=step_num,
                     strategy="tree_of_thoughts",
-                    content=branch[:200],
+                    content=f"Направление {i + 1}: {branch[:100]}",
                     duration_ms=0,
                     metadata={
                         "type": "branch",
@@ -658,6 +790,7 @@ class ReasoningEngine:
                         "score": score,
                         "node_id": branch_node["id"],
                         "parent": parent_id,
+                        "content": branch[:300],
                     },
                 ))
 
@@ -665,12 +798,12 @@ class ReasoningEngine:
                 "event": "thinking_step",
                 "data": {
                     "step": step_num,
-                    "label": f"Глубина {level + 1}: оценено {len(scored_branches)} ветвей",
-                    "type": "tree_score",
-                    "branches": [
-                        {"id": b["id"], "score": b["score"], "preview": b["thought"][:100]}
+                    "label": f"Оцениваю {len(scored_branches)} направлений",
+                    "type": "branch",
+                    "content": "\n".join(
+                        f"{b['thought'][:80]}  →  {b['score']:.1f}"
                         for b in scored_branches
-                    ],
+                    ),
                 },
             }
 
@@ -678,7 +811,7 @@ class ReasoningEngine:
         best_path = self._get_best_path(tree)
         yield {
             "event": "thinking_step",
-            "data": {"step": step_num + 1, "label": "Синтез финального ответа...", "type": "tree_synthesis"},
+            "data": {"step": step_num + 1, "label": "Формирую ответ на основе лучшего пути", "type": "synthesis", "content": ""},
         }
 
         synthesis = await self._synthesize_from_tree(user_query, best_path)
@@ -689,15 +822,558 @@ class ReasoningEngine:
         steps.append(ThinkingStep(
             step_number=step_num + 2,
             strategy="tree_of_thoughts",
-            content="Синтез ответа из лучшего пути рассуждений",
+            content="Формирую ответ на основе лучшего пути",
             metadata={
                 "type": "synthesis",
                 "best_path": [b["id"] for b in best_path],
-                "tree": [
-                    {"id": n["id"], "level": n["level"], "score": n["score"], "parent": n["parent"]}
-                    for n in tree
-                ],
             },
+        ))
+
+    # ── Strategy: Socratic ──
+
+    SOCRATIC_QUESTIONS_PROMPT = """Тебе задан вопрос. Вместо прямого ответа — сгенерируй ровно 3 ключевых подвопроса, ответы на которые необходимы для полного ответа на исходный вопрос.
+
+Вопрос: {question}
+
+Требования к подвопросам:
+— Каждый раскрывает отдельный важный аспект
+— Вместе они покрывают тему с разных сторон
+— Формулировки конкретные, не общие
+
+Ответь СТРОГО в формате (3 строки, каждая начинается с цифры):
+1. <подвопрос>
+2. <подвопрос>
+3. <подвопрос>
+
+Ничего кроме трёх пронумерованных строк."""
+
+    SOCRATIC_ANSWER_PROMPT = """Ответь на следующий вопрос подробно и по существу.
+
+Вопрос: {subquestion}
+
+Контекст — это часть более широкого вопроса: {original_question}
+
+Отвечай на языке пользователя. Будь конкретен и лаконичен (3–6 предложений)."""
+
+    SOCRATIC_SYNTHESIS_PROMPT = """Пользователь задал вопрос. Ты провёл сократический анализ: разбил его на подвопросы и ответил на каждый.
+
+Исходный вопрос: {question}
+
+{qa_pairs}
+
+Синтезируй ответы в единый, целостный, хорошо структурированный финальный ответ.
+— Не перечисляй подвопросы по отдельности
+— Дай связный ответ, естественно интегрирующий все инсайты
+— Отвечай на языке пользователя, чётко и по существу
+— НЕ используй теги <thinking>. Пиши ТОЛЬКО финальный ответ."""
+
+    async def _run_socratic(
+        self, messages: list[LLMMessage], steps: list[ThinkingStep], persona: str,
+    ) -> AsyncIterator[dict]:
+        user_query = messages[-1].content
+
+        # ── Step 1: Generate sub-questions ──
+        yield {
+            "event": "thinking_step",
+            "data": {"step": 1, "label": "Формулирую ключевые подвопросы", "type": "socratic_questions", "content": ""},
+        }
+
+        q_prompt = self.SOCRATIC_QUESTIONS_PROMPT.format(question=user_query)
+        q_req = LLMRequest(
+            messages=[
+                LLMMessage(role="system", content=persona),
+                LLMMessage(role="user", content=q_prompt),
+            ],
+            model=self.model,
+            temperature=0.5,
+            max_tokens=512,
+        )
+
+        step_start = time.monotonic()
+        q_resp = await self.provider.complete(q_req)
+        q_ms = int((time.monotonic() - step_start) * 1000)
+
+        # Parse numbered lines
+        raw_lines = [l.strip() for l in q_resp.content.strip().split("\n") if l.strip()]
+        subquestions: list[str] = []
+        for line in raw_lines:
+            cleaned = line.lstrip("0123456789.)- ").strip()
+            if cleaned:
+                subquestions.append(cleaned)
+        subquestions = subquestions[:3]
+
+        if not subquestions:
+            # Fallback: use the original question
+            subquestions = [user_query]
+
+        steps.append(ThinkingStep(
+            step_number=1,
+            strategy="socratic",
+            content="Подвопросы сформулированы",
+            duration_ms=q_ms,
+            metadata={"type": "socratic_questions", "questions": subquestions},
+        ))
+
+        yield {
+            "event": "thinking_step",
+            "data": {
+                "step": 1, "label": f"Сформулировано {len(subquestions)} подвопросов",
+                "type": "socratic_questions",
+                "content": "\n".join(f"{i+1}. {q}" for i, q in enumerate(subquestions)),
+            },
+        }
+
+        # ── Step 2: Answer each sub-question in parallel ──
+        async def answer_subquestion(idx: int, sq: str) -> tuple[int, str, str]:
+            a_prompt = self.SOCRATIC_ANSWER_PROMPT.format(
+                subquestion=sq,
+                original_question=user_query,
+            )
+            a_req = LLMRequest(
+                messages=[
+                    LLMMessage(role="system", content=persona),
+                    LLMMessage(role="user", content=a_prompt),
+                ],
+                model=self.model,
+                temperature=0.3,
+                max_tokens=1024,
+            )
+            resp = await self.provider.complete(a_req)
+            return idx, sq, resp.content
+
+        yield {
+            "event": "thinking_step",
+            "data": {"step": 2, "label": "Отвечаю на каждый подвопрос", "type": "socratic_answering", "content": ""},
+        }
+
+        step_start = time.monotonic()
+        tasks = [answer_subquestion(i, sq) for i, sq in enumerate(subquestions)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        qa_pairs: list[tuple[str, str]] = []
+        for r in results:
+            if isinstance(r, Exception):
+                logger.warning("Socratic sub-answer failed: %s", r)
+                continue
+            idx, sq, answer = r
+            answer_clean = self._strip_thinking_tags(answer)
+            qa_pairs.append((sq, answer_clean))
+            a_ms = int((time.monotonic() - step_start) * 1000)
+
+            steps.append(ThinkingStep(
+                step_number=idx + 2,
+                strategy="socratic",
+                content=f"Подвопрос {idx + 1}",
+                duration_ms=a_ms,
+                metadata={
+                    "type": "socratic_answer",
+                    "question": sq,
+                    "content": self._clean_step_content(answer_clean)[:400],
+                },
+            ))
+
+            yield {
+                "event": "thinking_step",
+                "data": {
+                    "step": idx + 2,
+                    "label": f"Подвопрос {idx + 1}: {sq[:60]}",
+                    "type": "socratic_answer",
+                    "content": self._clean_step_content(answer_clean)[:300],
+                },
+            }
+
+        if not qa_pairs:
+            yield {"event": "content_delta", "data": {"content": "Ошибка: не удалось ответить на подвопросы."}}
+            return
+
+        # ── Step 3: Synthesize ──
+        yield {
+            "event": "thinking_step",
+            "data": {
+                "step": len(subquestions) + 2,
+                "label": "Синтезирую финальный ответ",
+                "type": "socratic_synthesis",
+                "content": "",
+            },
+        }
+
+        qa_text = "\n\n".join(
+            f"Подвопрос: {sq}\nОтвет: {ans}"
+            for sq, ans in qa_pairs
+        )
+        synth_prompt = self.SOCRATIC_SYNTHESIS_PROMPT.format(
+            question=user_query,
+            qa_pairs=qa_text,
+        )
+
+        synth_req = LLMRequest(
+            messages=[
+                LLMMessage(role="system", content=persona),
+                LLMMessage(role="user", content=synth_prompt),
+            ],
+            model=self.model,
+            temperature=0.3,
+            max_tokens=4096,
+        )
+
+        synth_start = time.monotonic()
+        async for chunk in self.provider.stream(synth_req):
+            if chunk.content:
+                yield {"event": "content_delta", "data": {"content": chunk.content}}
+
+        synth_ms = int((time.monotonic() - synth_start) * 1000)
+        steps.append(ThinkingStep(
+            step_number=len(subquestions) + 3,
+            strategy="socratic",
+            content="Синтез ответов завершён",
+            duration_ms=synth_ms,
+            metadata={"type": "socratic_synthesis"},
+        ))
+
+    # ── Strategy: Rubber Duck Debug ──
+
+    RUBBER_DUCK_DRAFT_PROMPT = """Ответь на вопрос пользователя. Дай полный черновой ответ.
+Не упрощай — отвечай так, как считаешь правильным. Это черновик, который будет проверен."""
+
+    RUBBER_DUCK_EXPLAIN_PROMPT = """Ты только что дал черновой ответ на вопрос. Теперь объясни свой ответ максимально просто — так, чтобы понял пятиклассник.
+
+Вопрос пользователя: {question}
+
+Твой черновой ответ:
+{draft}
+
+Правила объяснения:
+— Используй простые слова, аналогии из повседневной жизни
+— Каждый шаг логики — отдельным предложением
+— Если какой-то шаг НЕЛЬЗЯ объяснить просто — значит, в нём возможна ошибка. Отметь это явно: [⚠️ СОМНИТЕЛЬНО: ...]
+— Если обнаружишь противоречие или логическую дыру — отметь: [❌ ОШИБКА: ...]
+— В конце дай вердикт: черновик верный, или содержит ошибки
+
+Формат:
+ОБЪЯСНЕНИЕ:
+(простое объяснение по шагам)
+
+НАЙДЕННЫЕ ПРОБЛЕМЫ:
+(список или «Проблем не обнаружено»)"""
+
+    RUBBER_DUCK_FIX_PROMPT = """Ты проверил свой черновой ответ через упрощённое объяснение и нашёл проблемы.
+
+Вопрос: {question}
+
+Черновик: {draft}
+
+Результат проверки: {review}
+
+Дай ФИНАЛЬНЫЙ исправленный ответ. Если проблем не было — дай улучшенную версию черновика.
+Отвечай чётко, по существу, на языке пользователя. БЕЗ мета-комментариев типа «я исправил...».
+НЕ используй теги <thinking>. Пиши ТОЛЬКО финальный ответ."""
+
+    async def _run_rubber_duck(
+        self, messages: list[LLMMessage], steps: list[ThinkingStep], persona: str,
+    ) -> AsyncIterator[dict]:
+        user_query = messages[-1].content
+
+        # ── Step 1: Draft ──
+        yield {
+            "event": "thinking_step",
+            "data": {"step": 1, "label": "Формирую черновой ответ", "type": "rubber_duck_draft", "content": ""},
+        }
+
+        draft_messages = list(messages)
+        if draft_messages and draft_messages[0].role == "system":
+            draft_messages[0] = LLMMessage(
+                role="system",
+                content=draft_messages[0].content + "\n\n" + self.RUBBER_DUCK_DRAFT_PROMPT,
+            )
+
+        draft_req = LLMRequest(
+            messages=draft_messages,
+            model=self.model,
+            temperature=0.3,
+            max_tokens=2048,
+        )
+
+        step_start = time.monotonic()
+        draft_chunks: list[str] = []
+        async for chunk in self.provider.stream(draft_req):
+            if chunk.content:
+                draft_chunks.append(chunk.content)
+
+        draft = "".join(draft_chunks)
+        draft_clean = self._strip_thinking_tags(draft)
+        draft_ms = int((time.monotonic() - step_start) * 1000)
+
+        steps.append(ThinkingStep(
+            step_number=1,
+            strategy="rubber_duck",
+            content="Черновой ответ сформирован",
+            duration_ms=draft_ms,
+            metadata={"type": "rubber_duck_draft", "content": self._clean_step_content(draft_clean)[:500]},
+        ))
+
+        yield {
+            "event": "thinking_step",
+            "data": {
+                "step": 1, "label": "Черновик готов",
+                "type": "rubber_duck_draft",
+                "content": self._clean_step_content(draft_clean)[:400],
+            },
+        }
+
+        # ── Step 2: Explain like I'm 5 → find errors ──
+        yield {
+            "event": "thinking_step",
+            "data": {"step": 2, "label": "🦆 Объясняю как пятикласснику — ищу ошибки", "type": "rubber_duck_review", "content": ""},
+        }
+
+        explain_prompt = self.RUBBER_DUCK_EXPLAIN_PROMPT.format(
+            question=user_query,
+            draft=draft_clean,
+        )
+        explain_req = LLMRequest(
+            messages=[
+                LLMMessage(role="system", content=persona),
+                LLMMessage(role="user", content=explain_prompt),
+            ],
+            model=self.model,
+            temperature=0.2,
+            max_tokens=2048,
+        )
+
+        step_start = time.monotonic()
+        review_chunks: list[str] = []
+        async for chunk in self.provider.stream(explain_req):
+            if chunk.content:
+                review_chunks.append(chunk.content)
+
+        review = "".join(review_chunks)
+        review_clean = self._strip_thinking_tags(review)
+        review_ms = int((time.monotonic() - step_start) * 1000)
+
+        steps.append(ThinkingStep(
+            step_number=2,
+            strategy="rubber_duck",
+            content="Проверка через объяснение завершена",
+            duration_ms=review_ms,
+            metadata={"type": "rubber_duck_review", "content": self._clean_step_content(review_clean)[:500]},
+        ))
+
+        yield {
+            "event": "thinking_step",
+            "data": {
+                "step": 2, "label": "🦆 Проверка завершена",
+                "type": "rubber_duck_review",
+                "content": self._clean_step_content(review_clean)[:400],
+            },
+        }
+
+        # ── Step 3: Fix and finalize ──
+        yield {
+            "event": "thinking_step",
+            "data": {"step": 3, "label": "Формирую финальный ответ с исправлениями", "type": "rubber_duck_fix", "content": ""},
+        }
+
+        fix_prompt = self.RUBBER_DUCK_FIX_PROMPT.format(
+            question=user_query,
+            draft=draft_clean,
+            review=review_clean,
+        )
+        fix_req = LLMRequest(
+            messages=[
+                LLMMessage(role="system", content=persona),
+                LLMMessage(role="user", content=fix_prompt),
+            ],
+            model=self.model,
+            temperature=0.3,
+            max_tokens=4096,
+        )
+
+        step_start = time.monotonic()
+        async for chunk in self.provider.stream(fix_req):
+            if chunk.content:
+                yield {"event": "content_delta", "data": {"content": chunk.content}}
+
+        fix_ms = int((time.monotonic() - step_start) * 1000)
+        steps.append(ThinkingStep(
+            step_number=3,
+            strategy="rubber_duck",
+            content="Финальный ответ с учётом найденных проблем",
+            duration_ms=fix_ms,
+            metadata={"type": "rubber_duck_fix"},
+        ))
+
+    # ── Strategy: Persona Council ──
+
+    COUNCIL_PERSONAS = [
+        {
+            "name": "Скептик-учёный",
+            "emoji": "🔬",
+            "system": (
+                "Ты — скептик-учёный. Твой подход: научная строгость и доказательность. "
+                "Для каждого утверждения спрашивай: где доказательства? Что можно измерить или проверить? "
+                "Указывай на логические ошибки, когнитивные искажения и необоснованные допущения. "
+                "Будь лаконичен, конкретен и критичен. Отвечай на языке пользователя."
+            ),
+        },
+        {
+            "name": "Практик",
+            "emoji": "🔧",
+            "system": (
+                "Ты — практик с многолетним опытом. Твой подход: что реально работает на практике? "
+                "Оценивай осуществимость, затраты, сроки, реальные ограничения. "
+                "Приводи примеры из практики. Отбрасывай теоретически красивые, но нереализуемые идеи. "
+                "Будь лаконичен и конкретен. Отвечай на языке пользователя."
+            ),
+        },
+        {
+            "name": "Адвокат дьявола",
+            "emoji": "⚖️",
+            "system": (
+                "Ты — адвокат дьявола. Твоя задача: найти слабые места, риски и контраргументы. "
+                "Что может пойти не так? Какие скрытые предположения? Какие альтернативные объяснения? "
+                "Атакуй каждый аргумент, чтобы проверить его прочность. "
+                "Будь провокативен, но конструктивен. Отвечай на языке пользователя."
+            ),
+        },
+        {
+            "name": "Визионер",
+            "emoji": "🚀",
+            "system": (
+                "Ты — визионер-стратег. Твой подход: идеальная версия, стратегическое мышление, долгосрочная перспектива. "
+                "Каков максимальный потенциал? Какие неочевидные возможности? Как это может изменить картину в целом? "
+                "Мысли масштабно, но обосновывай. Отвечай на языке пользователя."
+            ),
+        },
+    ]
+
+    COUNCIL_MODERATOR_PROMPT = """Ты — модератор совета экспертов. Тебе предоставлены мнения четырёх экспертов по вопросу пользователя.
+
+Вопрос: {question}
+
+{opinions}
+
+Твоя задача — синтезировать мнения в единый взвешенный ответ:
+1. Выдели ключевые инсайты каждого эксперта
+2. Найди точки согласия и расхождения
+3. Сформулируй сбалансированный ответ, учитывающий все перспективы
+4. Если эксперты расходятся — объясни почему и какой подход предпочтительнее в данном контексте
+
+Отвечай чётко и структурированно на языке пользователя. НЕ перечисляй мнения экспертов по отдельности — дай СИНТЕЗ.
+НЕ используй теги <thinking>. Пиши ТОЛЬКО финальный ответ."""
+
+    async def _run_persona_council(
+        self, messages: list[LLMMessage], steps: list[ThinkingStep], persona: str,
+    ) -> AsyncIterator[dict]:
+        user_query = messages[-1].content
+        council = self.COUNCIL_PERSONAS
+
+        yield {
+            "event": "thinking_step",
+            "data": {
+                "step": 1,
+                "label": f"Созываю совет из {len(council)} экспертов",
+                "type": "council_init",
+                "content": ", ".join(f"{p['emoji']} {p['name']}" for p in council),
+            },
+        }
+
+        # Generate all expert opinions in parallel
+        async def get_opinion(idx: int, p: dict) -> tuple[int, dict, str]:
+            expert_messages = [
+                LLMMessage(role="system", content=p["system"]),
+                *[m for m in messages if m.role != "system"],
+            ]
+            req = LLMRequest(
+                messages=expert_messages,
+                model=self.model,
+                temperature=0.5 + (idx * 0.05),
+            )
+            resp = await self.provider.complete(req)
+            return idx, p, resp.content
+
+        step_start = time.monotonic()
+        tasks = [get_opinion(i, p) for i, p in enumerate(council)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        opinions: list[tuple[dict, str]] = []
+        for r in results:
+            if isinstance(r, Exception):
+                logger.warning("Council member failed: %s", r)
+                continue
+            idx, p, content = r
+            content = self._strip_thinking_tags(content)
+            opinions.append((p, content))
+            step_ms = int((time.monotonic() - step_start) * 1000)
+
+            clean = self._clean_step_content(content)
+            steps.append(ThinkingStep(
+                step_number=idx + 2,
+                strategy="persona_council",
+                content=f"{p['emoji']} {p['name']}",
+                duration_ms=step_ms,
+                metadata={
+                    "type": "council_opinion",
+                    "persona": p["name"],
+                    "emoji": p["emoji"],
+                    "content": clean[:500],
+                },
+            ))
+            yield {
+                "event": "thinking_step",
+                "data": {
+                    "step": idx + 2,
+                    "label": f"{p['emoji']} {p['name']} высказался",
+                    "type": "council_opinion",
+                    "content": clean[:400],
+                },
+            }
+
+        if not opinions:
+            yield {"event": "content_delta", "data": {"content": "Ошибка: ни один эксперт не ответил."}}
+            return
+
+        # Moderator synthesizes
+        yield {
+            "event": "thinking_step",
+            "data": {
+                "step": len(council) + 2,
+                "label": "Модератор синтезирует мнения",
+                "type": "council_synthesis",
+                "content": "",
+            },
+        }
+
+        opinions_text = "\n\n".join(
+            f"### {p['emoji']} {p['name']}:\n{content}"
+            for p, content in opinions
+        )
+        moderator_prompt = self.COUNCIL_MODERATOR_PROMPT.format(
+            question=user_query,
+            opinions=opinions_text,
+        )
+
+        synth_req = LLMRequest(
+            messages=[
+                LLMMessage(role="system", content=persona),
+                LLMMessage(role="user", content=moderator_prompt),
+            ],
+            model=self.model,
+            temperature=0.3,
+            max_tokens=4096,
+        )
+
+        synth_start = time.monotonic()
+        async for chunk in self.provider.stream(synth_req):
+            if chunk.content:
+                yield {"event": "content_delta", "data": {"content": chunk.content}}
+
+        synth_ms = int((time.monotonic() - synth_start) * 1000)
+        steps.append(ThinkingStep(
+            step_number=len(council) + 3,
+            strategy="persona_council",
+            content="Синтез мнений совета",
+            duration_ms=synth_ms,
+            metadata={"type": "council_synthesis"},
         ))
 
     # ── Domain Detection ──
@@ -722,8 +1398,8 @@ class ReasoningEngine:
             for domain in VALID_DOMAINS:
                 if domain in raw:
                     return domain
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Domain detection failed: %s", e)
         return "general"
 
     # ── Auto-classification ──
@@ -743,8 +1419,10 @@ class ReasoningEngine:
         try:
             resp = await self.provider.complete(req)
             content = resp.content or ""
-            score = int(content.strip()[0])
-        except Exception:
+            match = re.search(r'[1-5]', content)
+            score = int(match.group()) if match else 3
+        except Exception as e:
+            logger.warning("Complexity classification failed: %s", e)
             score = 3  # Default to medium
 
         if score <= 2:
@@ -778,8 +1456,8 @@ class ReasoningEngine:
                 clarification = text[len("AMBIGUOUS:"):].strip()
                 if clarification:
                     return True, clarification
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Ambiguity check failed: %s", e)
         return False, ""
 
     # ── Tree helpers ──
@@ -814,8 +1492,6 @@ class ReasoningEngine:
         return branches[:n]
 
     async def _score_branch(self, query: str, thought: str) -> float:
-        import re
-        import logging
 
         prompt = f"""Оцени перспективность этой линии рассуждений для ответа на вопрос.
 
@@ -845,25 +1521,44 @@ class ReasoningEngine:
                 if score > 1.0:
                     score = score / 10.0  # handle "7" meaning 0.7
                 return max(0.05, min(1.0, score))
-            logging.warning(f"Score parse failed for response: {content!r}")
+            logger.warning("Score parse failed for response: %r", content)
         except Exception as e:
-            logging.warning(f"Branch scoring error: {e}")
+            logger.warning("Branch scoring error: %s", e)
         return 0.5
 
     def _get_best_path(self, tree: list[dict]) -> list[dict]:
-        """Get the highest-scoring path through the tree."""
+        """Get the highest-scoring root-to-leaf path following parent-child links."""
         if not tree:
             return []
-        # Group by level
-        levels: dict[int, list[dict]] = {}
+
+        # Index children by parent id
+        children_map: dict[str | None, list[dict]] = {}
         for node in tree:
-            levels.setdefault(node["level"], []).append(node)
-        # Take best at each level
-        path = []
-        for level in sorted(levels.keys()):
-            best = max(levels[level], key=lambda n: n.get("score", 0))
-            path.append(best)
-        return path
+            children_map.setdefault(node.get("parent"), []).append(node)
+
+        # DFS from roots (parent=None), track best average-score path
+        best_path: list[dict] = []
+        best_avg = -1.0
+
+        def dfs(node: dict, path: list[dict], total: float) -> None:
+            nonlocal best_path, best_avg
+            path.append(node)
+            new_total = total + node.get("score", 0)
+            kids = children_map.get(node["id"], [])
+            if not kids:
+                avg = new_total / len(path)
+                if avg > best_avg:
+                    best_avg = avg
+                    best_path = list(path)
+            else:
+                for child in kids:
+                    dfs(child, path, new_total)
+            path.pop()
+
+        for root in children_map.get(None, []):
+            dfs(root, [], 0.0)
+
+        return best_path
 
     async def _synthesize_from_tree(self, query: str, path: list[dict]) -> str:
         thoughts = "\n".join(f"- {node['thought']}" for node in path)
@@ -899,11 +1594,11 @@ class ReasoningEngine:
 
     def _parse_vote(self, vote_text: str, n: int) -> int:
         try:
-            for ch in vote_text.strip():
-                if ch.isdigit():
-                    idx = int(ch) - 1
-                    if 0 <= idx < n:
-                        return idx
+            match = re.search(r'\d+', vote_text.strip())
+            if match:
+                idx = int(match.group()) - 1
+                if 0 <= idx < n:
+                    return idx
         except (ValueError, IndexError):
             pass
         return 0

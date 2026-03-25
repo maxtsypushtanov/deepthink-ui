@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import aiosqlite
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from app.core.config import settings
+from app.db.database import get_db
 
-DB_PATH = settings.db_path
+logger = logging.getLogger(__name__)
 
 CALENDAR_SCHEMA = """
 CREATE TABLE IF NOT EXISTS calendar_events (
@@ -27,17 +27,9 @@ CREATE INDEX IF NOT EXISTS idx_calendar_end ON calendar_events(end_time);
 
 
 async def init_calendar_db() -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.executescript(CALENDAR_SCHEMA)
-        await db.commit()
-
-
-async def _get_db() -> aiosqlite.Connection:
-    db = await aiosqlite.connect(DB_PATH)
-    db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA journal_mode=WAL")
-    await db.execute("PRAGMA foreign_keys=ON")
-    return db
+    db = await get_db()
+    await db.executescript(CALENDAR_SCHEMA)
+    await db.commit()
 
 
 # ── CRUD ──
@@ -49,44 +41,41 @@ async def create_event(
     description: str = "",
     color: str = "#3b82f6",
 ) -> dict:
-    eid = uuid.uuid4().hex[:12]
-    now = datetime.now(timezone.utc).isoformat()
-    db = await _get_db()
+    # Validate datetime strings
     try:
-        await db.execute(
-            "INSERT INTO calendar_events (id, title, description, start_time, end_time, color, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (eid, title, description, start_time, end_time, color, now),
-        )
-        await db.commit()
-        return {"id": eid, "title": title, "description": description,
-                "start_time": start_time, "end_time": end_time, "color": color}
-    finally:
-        await db.close()
+        datetime.fromisoformat(start_time)
+        datetime.fromisoformat(end_time)
+    except ValueError as e:
+        raise ValueError(f"Invalid datetime format: {e}")
+    eid = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO calendar_events (id, title, description, start_time, end_time, color, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (eid, title, description, start_time, end_time, color, now),
+    )
+    await db.commit()
+    return {"id": eid, "title": title, "description": description,
+            "start_time": start_time, "end_time": end_time, "color": color}
 
 
 async def list_events(start: str, end: str) -> list[dict]:
     """List events overlapping [start, end] range."""
-    db = await _get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT * FROM calendar_events WHERE start_time < ? AND end_time > ? ORDER BY start_time",
-            (end, start),
-        )
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        await db.close()
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT * FROM calendar_events WHERE start_time <= ? AND end_time >= ? ORDER BY start_time",
+        (end, start),
+    )
+    rows = await cursor.fetchall()
+    return [dict(r) for r in rows]
 
 
 async def get_event(eid: str) -> dict | None:
-    db = await _get_db()
-    try:
-        cursor = await db.execute("SELECT * FROM calendar_events WHERE id = ?", (eid,))
-        row = await cursor.fetchone()
-        return dict(row) if row else None
-    finally:
-        await db.close()
+    db = await get_db()
+    cursor = await db.execute("SELECT * FROM calendar_events WHERE id = ?", (eid,))
+    row = await cursor.fetchone()
+    return dict(row) if row else None
 
 
 async def update_event(eid: str, **kwargs: str) -> dict | None:
@@ -96,23 +85,20 @@ async def update_event(eid: str, **kwargs: str) -> dict | None:
         return await get_event(eid)
     sets = ", ".join(f"{k} = ?" for k in fields)
     vals = list(fields.values()) + [eid]
-    db = await _get_db()
-    try:
-        await db.execute(f"UPDATE calendar_events SET {sets} WHERE id = ?", vals)
-        await db.commit()
-        return await get_event(eid)
-    finally:
-        await db.close()
+    db = await get_db()
+    await db.execute(f"UPDATE calendar_events SET {sets} WHERE id = ?", vals)
+    await db.commit()
+    # Re-fetch using the same connection (already shared)
+    cursor = await db.execute("SELECT * FROM calendar_events WHERE id = ?", (eid,))
+    row = await cursor.fetchone()
+    return dict(row) if row else None
 
 
 async def delete_event(eid: str) -> bool:
-    db = await _get_db()
-    try:
-        cursor = await db.execute("DELETE FROM calendar_events WHERE id = ?", (eid,))
-        await db.commit()
-        return cursor.rowcount > 0
-    finally:
-        await db.close()
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM calendar_events WHERE id = ?", (eid,))
+    await db.commit()
+    return cursor.rowcount > 0
 
 
 # ── Free slots finder ──
@@ -153,18 +139,37 @@ async def find_free_slots(
     duration = timedelta(minutes=duration_minutes)
 
     for occ_start, occ_end in occupied:
-        if current + duration <= occ_start:
+        while current + duration <= occ_start:
             slots.append({
                 "start": current.isoformat(),
                 "end": (current + duration).isoformat(),
             })
+            current += duration
         current = max(current, occ_end)
 
     # Check remaining time after last event
-    if current + duration <= end_dt:
+    while current + duration <= end_dt:
         slots.append({
             "start": current.isoformat(),
             "end": (current + duration).isoformat(),
         })
+        current += duration
 
     return slots
+
+
+async def check_conflicts(start_time: str, end_time: str, exclude_id: str | None = None) -> list[dict]:
+    """Return events that overlap with the given time range."""
+    db = await get_db()
+    if exclude_id:
+        cursor = await db.execute(
+            "SELECT * FROM calendar_events WHERE start_time < ? AND end_time > ? AND id != ? ORDER BY start_time",
+            (end_time, start_time, exclude_id),
+        )
+    else:
+        cursor = await db.execute(
+            "SELECT * FROM calendar_events WHERE start_time < ? AND end_time > ? ORDER BY start_time",
+            (end_time, start_time),
+        )
+    rows = await cursor.fetchall()
+    return [dict(r) for r in rows]

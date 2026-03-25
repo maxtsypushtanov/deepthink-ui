@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any, Callable, Awaitable
@@ -80,7 +81,10 @@ class MCPClient:
         })
 
         logger.debug("MCP call_tool: %s(%s)", name, safe_params)
-        result = await self._session.call_tool(name, arguments=safe_params)
+        result = await asyncio.wait_for(
+            self._session.call_tool(name, arguments=safe_params),
+            timeout=120.0,
+        )
 
         # Flatten TextContent list into a single dict
         content_parts = []
@@ -122,4 +126,6 @@ class MCPClient:
             except Exception:
                 logger.warning("Error closing MCP stdio transport", exc_info=True)
         self._session = None
+        self._cm = None
+        self._session_cm = None
         logger.info("MCP client closed")

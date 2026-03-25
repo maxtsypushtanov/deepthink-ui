@@ -1,10 +1,7 @@
-import { useState, useMemo } from 'react';
-import type { ThinkingStep, StrategySelectedEvent, TreeNode } from '@/types';
-import { cn, formatDuration } from '@/lib/utils';
-import { STRATEGY_LABELS_RU } from '@/lib/constants';
-import { ChevronDown, ChevronRight, Brain, Clock, GitBranch, TreePine, Sparkles, Target, List, Network } from 'lucide-react';
-import { PersonaCard } from './PersonaCard';
-import { ReasoningTree } from './ReasoningTree';
+import { useState, useEffect } from 'react';
+import type { ThinkingStep, StrategySelectedEvent } from '@/types';
+import { cn } from '@/lib/utils';
+import { ChevronDown, ChevronRight, Search, Globe, Wrench, AlertTriangle, Loader2, CheckCircle2, Brain } from 'lucide-react';
 
 interface Props {
   steps: ThinkingStep[];
@@ -15,161 +12,209 @@ interface Props {
   onClarificationSubmit?: (answer: string) => void;
 }
 
-const STRATEGY_BADGE: Record<string, { label: string; color: string; icon: React.ComponentType<any> }> = {
-  cot: { label: 'Цепочка мыслей', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20', icon: Brain },
-  budget_forcing: { label: 'Углублённый анализ', color: 'bg-purple-500/10 text-purple-400 border-purple-500/20', icon: Sparkles },
-  best_of_n: { label: 'Лучший из N', color: 'bg-green-500/10 text-green-400 border-green-500/20', icon: GitBranch },
-  tree_of_thoughts: { label: 'Дерево мыслей', color: 'bg-orange-500/10 text-orange-400 border-orange-500/20', icon: TreePine },
-  none: { label: 'Прямой ответ', color: 'bg-gray-500/10 text-gray-400 border-gray-500/20', icon: Target },
-};
+// ── Icon per step type ──
 
-export function ThinkingPanel({ steps, strategy, isLive, persona, clarificationQuestion, onClarificationSubmit }: Props) {
-  const [open, setOpen] = useState(isLive || false);
-  const [expandedStep, setExpandedStep] = useState<number | null>(null);
-  const [clarificationAnswer, setClarificationAnswer] = useState('');
-  const [viewMode, setViewMode] = useState<'list' | 'tree'>('list');
+function StepIcon({ type }: { type?: string }) {
+  switch (type) {
+    case 'tool_call':
+      return <Search className="h-3 w-3 text-indigo-400" />;
+    case 'tool_result':
+      return <Globe className="h-3 w-3 text-cyan-400" />;
+    case 'tool_error':
+      return <AlertTriangle className="h-3 w-3 text-red-400" />;
+    case 'reasoning':
+    case 'extracted_thinking':
+    case 'cot_activation':
+      return <Brain className="h-3 w-3 text-blue-400" />;
+    case 'vote':
+    case 'synthesis':
+    case 'tree_synthesis':
+      return <CheckCircle2 className="h-3 w-3 text-emerald-400" />;
+    case 'candidate':
+    case 'branch':
+      return <Globe className="h-3 w-3 text-orange-400" />;
+    default:
+      return <Wrench className="h-3 w-3 text-muted-foreground" />;
+  }
+}
 
-  const treeNodes = useMemo<TreeNode[]>(() => {
-    if (strategy !== 'tree_of_thoughts') return [];
-    return steps
-      .filter((s) => s.metadata?.node_id)
-      .map((s) => ({
-        id: String(s.metadata.node_id),
-        level: Number(s.metadata.level ?? 0),
-        score: Number(s.metadata.score ?? 0.5),
-        parent: s.metadata.parent ? String(s.metadata.parent) : null,
-        thought: s.content,
-      }));
-  }, [steps, strategy]);
+// ── Accent color for the left border per type ──
 
-  const badge = STRATEGY_BADGE[strategy] || STRATEGY_BADGE.cot;
-  const BadgeIcon = badge.icon;
+function getAccent(type?: string): string {
+  switch (type) {
+    case 'tool_call': return 'border-l-indigo-400';
+    case 'tool_result': return 'border-l-cyan-400';
+    case 'tool_error': return 'border-l-red-400';
+    case 'reasoning':
+    case 'extracted_thinking':
+    case 'cot_activation': return 'border-l-blue-400';
+    case 'vote':
+    case 'synthesis':
+    case 'tree_synthesis': return 'border-l-emerald-400';
+    case 'candidate':
+    case 'branch': return 'border-l-orange-400';
+    default: return 'border-l-muted-foreground/40';
+  }
+}
+
+// ── Single collapsible reasoning block ──
+
+function ReasoningBlock({ step, isLast, isLive }: { step: ThinkingStep; isLast: boolean; isLive: boolean }) {
+  const [open, setOpen] = useState(false);
+  const type = step.metadata?.type as string | undefined;
+  const detail = step.metadata?.content as string | undefined;
+  const hasDetail = !!detail && detail.length > 0;
 
   return (
-    <div className="mb-3 rounded-lg border border-border bg-card/50 overflow-hidden">
-      {/* Header — clickable to collapse */}
+    <div className={cn('border-l-2 animate-fade-in', getAccent(type))}>
+      {/* Block header — title is the action being performed */}
       <button
-        onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/30"
+        onClick={() => hasDetail && setOpen(!open)}
+        className={cn(
+          'flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors',
+          hasDetail && 'hover:bg-accent/20 cursor-pointer',
+          !hasDetail && 'cursor-default',
+        )}
       >
-        {open ? (
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+        {/* Live spinner for last active step */}
+        {isLive && isLast ? (
+          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground shrink-0" />
         ) : (
-          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+          <StepIcon type={type} />
         )}
 
-        <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium', badge.color)}>
-          <BadgeIcon className="h-3 w-3" />
-          {badge.label}
+        <span className="text-xs text-foreground flex-1 min-w-0 truncate">
+          {step.content}
         </span>
 
-        <span className="text-[10px] text-muted-foreground">
+        {hasDetail && (
+          open
+            ? <ChevronDown className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+            : <ChevronRight className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+        )}
+      </button>
+
+      {/* Expanded detail */}
+      {open && hasDetail && (
+        <div className="px-3 pb-2 pl-8">
+          <DetailContent type={type} content={detail} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Render detail content based on step type ──
+
+function DetailContent({ type, content }: { type?: string; content: string }) {
+  // Tool calls — show as search-query-like lines
+  if (type === 'tool_call') {
+    return (
+      <div className="space-y-0.5">
+        {content.split('\n').filter(Boolean).map((line, i) => (
+          <div key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Search className="h-2.5 w-2.5 shrink-0 text-indigo-400/60" />
+            <span className="truncate font-mono">{line}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Tool results — show as source-like lines
+  if (type === 'tool_result') {
+    const lines = content.split('\n').filter(Boolean);
+    const show = lines.slice(0, 4);
+    const rest = lines.length - 4;
+    return (
+      <div className="space-y-0.5">
+        {show.map((line, i) => (
+          <div key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Globe className="h-2.5 w-2.5 shrink-0 text-cyan-400/60" />
+            <span className="truncate">{line}</span>
+          </div>
+        ))}
+        {rest > 0 && (
+          <span className="text-[10px] text-muted-foreground/50 pl-4">+{rest} ещё</span>
+        )}
+      </div>
+    );
+  }
+
+  // Default — plain text reasoning
+  return (
+    <p className="text-[11px] text-muted-foreground leading-relaxed whitespace-pre-wrap line-clamp-[12]">
+      {content}
+    </p>
+  );
+}
+
+// ── Main ThinkingPanel ──
+
+export function ThinkingPanel({ steps, strategy, isLive, persona, clarificationQuestion, onClarificationSubmit }: Props) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [clarificationAnswer, setClarificationAnswer] = useState('');
+
+  // Auto-expand when live
+  useEffect(() => {
+    if (isLive) setCollapsed(false);
+  }, [isLive]);
+
+  if (steps.length === 0 && !isLive) return null;
+
+  return (
+    <div className="mb-3 overflow-hidden">
+      {/* Collapsible outer wrapper */}
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex w-full items-center gap-2 rounded-t-lg bg-accent/30 px-3 py-2 text-left transition-colors hover:bg-accent/50"
+      >
+        {collapsed ? (
+          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+        )}
+
+        <span className="text-xs font-medium text-foreground">
+          {isLive ? 'Рассуждаю' : 'Рассуждение'}
+        </span>
+
+        <span className="text-[10px] text-muted-foreground/60">
           {steps.length} {steps.length === 1 ? 'шаг' : steps.length < 5 ? 'шага' : 'шагов'}
         </span>
 
-        {!open && steps.length > 0 && (
-          <>
-            {steps.reduce((sum, s) => sum + s.duration_ms, 0) > 0 && (
-              <span className="text-[10px] text-muted-foreground">
-                {formatDuration(steps.reduce((sum, s) => sum + s.duration_ms, 0))}
-              </span>
-            )}
-            {steps.some(s => s.metadata?.score !== undefined) && (
-              <span className="text-[10px] text-muted-foreground">
-                лучший: {Math.max(...steps.filter(s => s.metadata?.score !== undefined).map(s => Number(s.metadata.score))).toFixed(2)}
-              </span>
-            )}
-          </>
-        )}
-
-        {strategy === 'tree_of_thoughts' && treeNodes.length > 0 && (
-          <span className="ml-auto flex items-center gap-0.5 mr-2">
-            <button
-              onClick={(e) => { e.stopPropagation(); setViewMode('list'); }}
-              className={cn('rounded p-0.5', viewMode === 'list' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}
-              title="Список"
-            >
-              <List className="h-3 w-3" />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); setViewMode('tree'); }}
-              className={cn('rounded p-0.5', viewMode === 'tree' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}
-              title="Дерево"
-            >
-              <Network className="h-3 w-3" />
-            </button>
-          </span>
-        )}
-
         {isLive && (
-          <span className={cn('flex items-center gap-1 text-[10px] text-muted-foreground', strategy !== 'tree_of_thoughts' && 'ml-auto')}>
-            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
-            думаю...
+          <span className="ml-auto flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
           </span>
         )}
       </button>
 
-      {/* Steps */}
-      {open && (
-        <div className="border-t border-border px-3 py-2">
-          {persona && <PersonaCard persona={persona} />}
-          {viewMode === 'tree' && treeNodes.length > 0 ? (
-            <ReasoningTree nodes={treeNodes} />
-          ) : steps.map((step, i) => {
-            const isExpanded = expandedStep === i;
-            return (
-              <div
-                key={i}
-                className={cn(
-                  'animate-fade-in relative border-l-2 py-2 pl-4 cursor-pointer transition-colors hover:bg-accent/20 rounded-r',
-                  getStepColor(step),
-                )}
-                onClick={() => setExpandedStep(isExpanded ? null : i)}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-foreground">
-                    {step.step_number}
-                  </span>
-                  <span className="text-xs font-medium text-foreground">
-                    {STRATEGY_LABELS_RU[step.strategy] || step.strategy.replace('_', ' ')}
-                  </span>
-                  {step.duration_ms > 0 && (
-                    <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                      <Clock className="h-2.5 w-2.5" />
-                      {formatDuration(step.duration_ms)}
-                    </span>
-                  )}
-                  {step.metadata?.score !== undefined && (
-                    <div className="flex items-center gap-1.5 flex-1 max-w-[120px]">
-                      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className={cn(
-                            'h-full rounded-full transition-all duration-500',
-                            Number(step.metadata.score) >= 0.7 ? 'bg-green-400' :
-                            Number(step.metadata.score) >= 0.4 ? 'bg-yellow-400' : 'bg-red-400',
-                          )}
-                          style={{ width: `${Number(step.metadata.score) * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-[10px] font-mono text-muted-foreground">
-                        {Number(step.metadata.score).toFixed(2)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-                {step.content && (
-                  <p className={cn('mt-1 text-xs text-muted-foreground', !isExpanded && 'line-clamp-3')}>
-                    {step.content}
-                  </p>
-                )}
-              </div>
-            );
-          })}
+      {/* Steps list */}
+      {!collapsed && (
+        <div className="rounded-b-lg border border-t-0 border-border bg-card/30 divide-y divide-border/30">
+          {steps.map((step, i) => (
+            <ReasoningBlock
+              key={i}
+              step={step}
+              isLast={i === steps.length - 1}
+              isLive={!!isLive}
+            />
+          ))}
+
+          {/* Empty live state */}
+          {isLive && steps.length === 0 && (
+            <div className="flex items-center gap-2 px-3 py-2">
+              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Анализирую запрос...</span>
+            </div>
+          )}
         </div>
       )}
 
+      {/* Clarification prompt */}
       {clarificationQuestion && (
-        <div className="border-t border-border px-3 py-3">
+        <div className="border border-t-0 border-border rounded-b-lg px-3 py-3 bg-card/30">
           <p className="text-xs font-medium text-foreground mb-2">{clarificationQuestion}</p>
           <div className="flex gap-2">
             <input
@@ -183,7 +228,7 @@ export function ThinkingPanel({ steps, strategy, isLive, persona, clarificationQ
                 }
               }}
               placeholder="Ваш ответ..."
-              className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40"
             />
             <button
               onClick={() => {
@@ -207,15 +252,4 @@ export function ThinkingPanel({ steps, strategy, isLive, persona, clarificationQ
       )}
     </div>
   );
-}
-
-function getStepColor(step: ThinkingStep): string {
-  const s = step.strategy;
-  if (s === 'cot') return 'border-blue-400/40';
-  if (s === 'budget_forcing') return 'border-purple-400/40';
-  if (s === 'best_of_n') return 'border-green-400/40';
-  if (s === 'tree_of_thoughts') return 'border-orange-400/40';
-  if (step.metadata?.type === 'vote') return 'border-emerald-400/40';
-  if (step.metadata?.type === 'synthesis') return 'border-amber-400/40';
-  return 'border-muted-foreground/40';
 }

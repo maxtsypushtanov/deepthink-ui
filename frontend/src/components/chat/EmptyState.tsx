@@ -2,8 +2,7 @@ import { useChatStore } from '@/stores/chatStore';
 import { STRATEGY_LABELS_RU } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import type { ReasoningStrategy } from '@/types';
-import { Brain, Sparkles, GitBranch, TreePine, Target, Zap, Code, Calculator, BookOpen, Lightbulb, Scale, FlaskConical } from 'lucide-react';
-import { DeepThinkLogo } from '@/components/icons/DeepThinkLogo';
+import { Brain, Sparkles, GitBranch, TreePine, Target, Zap, Users, Bug, HelpCircle, Code, Calculator, Lightbulb, Scale, FlaskConical } from 'lucide-react';
 
 const STRATEGY_OPTIONS: { key: ReasoningStrategy; icon: React.ComponentType<any>; color: string }[] = [
   { key: 'auto', icon: Zap, color: 'text-amber-400 border-amber-500/20 bg-amber-500/10' },
@@ -12,15 +11,30 @@ const STRATEGY_OPTIONS: { key: ReasoningStrategy; icon: React.ComponentType<any>
   { key: 'budget_forcing', icon: Sparkles, color: 'text-purple-400 border-purple-500/20 bg-purple-500/10' },
   { key: 'best_of_n', icon: GitBranch, color: 'text-green-400 border-green-500/20 bg-green-500/10' },
   { key: 'tree_of_thoughts', icon: TreePine, color: 'text-orange-400 border-orange-500/20 bg-orange-500/10' },
+  { key: 'persona_council', icon: Users, color: 'text-cyan-400 border-cyan-500/20 bg-cyan-500/10' },
+  { key: 'rubber_duck', icon: Bug, color: 'text-yellow-400 border-yellow-500/20 bg-yellow-500/10' },
+  { key: 'socratic', icon: HelpCircle, color: 'text-rose-400 border-rose-500/20 bg-rose-500/10' },
 ];
 
-const EXAMPLE_CARDS = [
-  { text: 'Объясни разницу между REST и GraphQL', icon: Code, strategy: 'cot' as ReasoningStrategy },
-  { text: 'Докажи, что √2 — иррациональное число', icon: Calculator, strategy: 'budget_forcing' as ReasoningStrategy },
-  { text: 'Сравни три подхода к кэшированию в web-приложениях', icon: GitBranch, strategy: 'best_of_n' as ReasoningStrategy },
-  { text: 'Какие последствия повсеместного внедрения ИИ?', icon: Lightbulb, strategy: 'tree_of_thoughts' as ReasoningStrategy },
-  { text: 'Проанализируй этическую дилемму вагонетки', icon: Scale, strategy: 'budget_forcing' as ReasoningStrategy },
-  { text: 'Опиши процесс фотосинтеза для школьника', icon: FlaskConical, strategy: 'cot' as ReasoningStrategy },
+const EXAMPLE_CARDS: { text: string; icon: React.ComponentType<any>; strategy: ReasoningStrategy }[] = [
+  // CoT
+  { text: 'Объясни разницу между REST и GraphQL', icon: Code, strategy: 'cot' },
+  // Budget Forcing
+  { text: 'Докажи, что √2 — иррациональное число', icon: Calculator, strategy: 'budget_forcing' },
+  // Best of N
+  { text: 'Сравни три подхода к кэшированию в web-приложениях', icon: GitBranch, strategy: 'best_of_n' },
+  // Tree of Thoughts
+  { text: 'Какие последствия повсеместного внедрения ИИ?', icon: Lightbulb, strategy: 'tree_of_thoughts' },
+  // Persona Council
+  { text: 'Стоит ли стартапу строить свою LLM или использовать API?', icon: Users, strategy: 'persona_council' },
+  // Rubber Duck
+  { text: 'Почему быстрая сортировка в среднем O(n log n)?', icon: Bug, strategy: 'rubber_duck' },
+  // Socratic
+  { text: 'Что такое справедливость и можно ли её измерить?', icon: HelpCircle, strategy: 'socratic' },
+  // Budget Forcing
+  { text: 'Проанализируй этическую дилемму вагонетки', icon: Scale, strategy: 'budget_forcing' },
+  // CoT
+  { text: 'Опиши процесс фотосинтеза для школьника', icon: FlaskConical, strategy: 'cot' },
 ];
 
 export function EmptyState() {
@@ -35,12 +49,9 @@ export function EmptyState() {
   return (
     <div className="flex h-full items-center justify-center p-6">
       <div className="w-full max-w-2xl">
-        {/* Logo */}
-        <div className="text-center mb-8 animate-fade-in" style={{ animationDelay: '0ms' }}>
-          <div className="mx-auto mb-4 flex justify-center">
-            <DeepThinkLogo size={96} />
-          </div>
-          <h2 className="text-xl font-semibold tracking-tight">DeepThink</h2>
+        {/* Header */}
+        <div className="text-center mb-8 animate-fade-in" style={{ animationDelay: '0ms', animationFillMode: 'both' }}>
+          <h2 className="text-xl font-semibold tracking-tight">Deep Think UI</h2>
           <p className="mt-1.5 text-sm text-muted-foreground">
             Глубокое мышление для любой модели
           </p>
@@ -74,7 +85,7 @@ export function EmptyState() {
         </div>
 
         {/* Example cards */}
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 animate-fade-in" style={{ animationDelay: '200ms', animationFillMode: 'both' }}>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 animate-fade-in" style={{ animationDelay: '200ms', animationFillMode: 'both' }}>
           {EXAMPLE_CARDS.map((card, i) => {
             const Icon = card.icon;
             const strategyColor = STRATEGY_OPTIONS.find((o) => o.key === card.strategy);

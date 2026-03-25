@@ -1,4 +1,6 @@
-const API_BASE = import.meta.env.VITE_API_URL || '';
+import type { Conversation, Message, Folder } from '@/types';
+
+export const API_BASE = import.meta.env.VITE_API_URL || '';
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(`${API_BASE}${url}`, {
@@ -15,52 +17,52 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
 // ── Conversations ──
 
 export const api = {
-  listConversations: () => fetchJSON<any[]>('/api/conversations'),
+  listConversations: (): Promise<Conversation[]> => fetchJSON<Conversation[]>('/api/conversations'),
 
-  createConversation: (title = 'Новый чат') =>
-    fetchJSON<any>('/api/conversations', {
+  createConversation: (title = 'Новый чат'): Promise<Conversation> =>
+    fetchJSON<Conversation>('/api/conversations', {
       method: 'POST',
       body: JSON.stringify({ title }),
     }),
 
-  getMessages: (cid: string) => fetchJSON<any[]>(`/api/conversations/${cid}/messages`),
+  getMessages: (cid: string): Promise<Message[]> => fetchJSON<Message[]>(`/api/conversations/${cid}/messages`),
 
-  updateConversation: (cid: string, title: string) =>
-    fetchJSON<any>(`/api/conversations/${cid}`, {
+  updateConversation: (cid: string, title: string): Promise<Conversation> =>
+    fetchJSON<Conversation>(`/api/conversations/${cid}`, {
       method: 'PATCH',
       body: JSON.stringify({ title }),
     }),
 
-  deleteConversation: (cid: string) =>
-    fetchJSON<any>(`/api/conversations/${cid}`, { method: 'DELETE' }),
+  deleteConversation: (cid: string): Promise<void> =>
+    fetchJSON<void>(`/api/conversations/${cid}`, { method: 'DELETE' }),
 
-  moveConversation: (cid: string, folderId: string | null) =>
-    fetchJSON<any>(`/api/conversations/${cid}/folder`, {
+  moveConversation: (cid: string, folderId: string | null): Promise<Conversation> =>
+    fetchJSON<Conversation>(`/api/conversations/${cid}/folder`, {
       method: 'PUT',
       body: JSON.stringify({ folder_id: folderId }),
     }),
 
   // ── Folders ──
 
-  listFolders: () => fetchJSON<any[]>('/api/folders'),
+  listFolders: (): Promise<Folder[]> => fetchJSON<Folder[]>('/api/folders'),
 
-  createFolder: (name: string, parentFolderId?: string | null) =>
-    fetchJSON<any>('/api/folders', {
+  createFolder: (name: string, parentFolderId?: string | null): Promise<Folder> =>
+    fetchJSON<Folder>('/api/folders', {
       method: 'POST',
       body: JSON.stringify({ name, parent_folder_id: parentFolderId ?? null }),
     }),
 
-  renameFolder: (fid: string, name: string) =>
-    fetchJSON<any>(`/api/folders/${fid}`, {
+  renameFolder: (fid: string, name: string): Promise<Folder> =>
+    fetchJSON<Folder>(`/api/folders/${fid}`, {
       method: 'PUT',
       body: JSON.stringify({ name }),
     }),
 
-  deleteFolder: (fid: string) =>
-    fetchJSON<any>(`/api/folders/${fid}`, { method: 'DELETE' }),
+  deleteFolder: (fid: string): Promise<void> =>
+    fetchJSON<void>(`/api/folders/${fid}`, { method: 'DELETE' }),
 
-  moveFolder: (fid: string, parentFolderId: string | null) =>
-    fetchJSON<any>(`/api/folders/${fid}/move`, {
+  moveFolder: (fid: string, parentFolderId: string | null): Promise<Folder> =>
+    fetchJSON<Folder>(`/api/folders/${fid}/move`, {
       method: 'PUT',
       body: JSON.stringify({ parent_folder_id: parentFolderId }),
     }),
@@ -76,23 +78,17 @@ export const api = {
     }),
 
   listModels: (provider: string) => fetchJSON<any[]>(`/api/models/${provider}`),
-
-  // ── Chat (SSE) ──
-
-  chatStream: (body: Record<string, unknown>): EventSource => {
-    // We use fetch + ReadableStream instead of EventSource for POST
-    // This is handled in the hook
-    throw new Error('Use useChatStream hook instead');
-  },
 };
 
 export async function* streamChat(
   body: Record<string, unknown>,
+  signal?: AbortSignal,
 ): AsyncGenerator<{ event: string; data: any }> {
   const resp = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   });
 
   if (!resp.ok) {
@@ -100,7 +96,11 @@ export async function* streamChat(
     throw new Error(err.detail);
   }
 
-  const reader = resp.body!.getReader();
+  if (!resp.body) {
+    throw new Error('Response body is null');
+  }
+
+  const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
 
@@ -123,6 +123,7 @@ export async function* streamChat(
         try {
           const data = JSON.parse(raw);
           yield { event: currentEvent, data };
+          currentEvent = 'message';
         } catch {
           // skip malformed
         }

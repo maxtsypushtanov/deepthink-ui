@@ -32,6 +32,7 @@ class LLMRequest:
 class LLMChunk:
     """A single chunk from streaming response."""
     content: str = ""
+    reasoning_content: str = ""
     finish_reason: str | None = None
     usage: dict = field(default_factory=dict)
 
@@ -77,10 +78,10 @@ class BaseLLMProvider(ABC):
 
     async def complete(self, req: LLMRequest) -> LLMResponse:
         """Non-streaming completion."""
-        req.stream = False
         url = f"{self.base_url}/chat/completions"
         body = self._build_body(req)
-        logger.warning("[LLM REQUEST] POST %s | model=%s | body=%s", url, body.get("model"), json.dumps(body, ensure_ascii=False, default=str)[:2000])
+        body["stream"] = False
+        logger.debug("[LLM REQUEST] POST %s | model=%s | body=%s", url, body.get("model"), json.dumps(body, ensure_ascii=False, default=str)[:2000])
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, headers=self._headers(), json=body)
             if resp.status_code >= 400:
@@ -102,16 +103,21 @@ class BaseLLMProvider(ABC):
 
     async def stream(self, req: LLMRequest) -> AsyncIterator[LLMChunk]:
         """Streaming completion yielding chunks."""
-        req.stream = True
         url = f"{self.base_url}/chat/completions"
         body = self._build_body(req)
-        logger.warning("[LLM REQUEST] POST (stream) %s | model=%s | body=%s", url, body.get("model"), json.dumps(body, ensure_ascii=False, default=str)[:2000])
+        body["stream"] = True
+        logger.debug("[LLM REQUEST] POST (stream) %s | model=%s | body=%s", url, body.get("model"), json.dumps(body, ensure_ascii=False, default=str)[:2000])
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream("POST", url, headers=self._headers(), json=body) as resp:
                 if resp.status_code >= 400:
                     error_body = await resp.aread()
-                    logger.error("LLM API error %s: %s", resp.status_code, error_body.decode()[:1000])
-                resp.raise_for_status()
+                    error_text = error_body.decode()[:1000]
+                    logger.error("LLM API error %s: %s", resp.status_code, error_text)
+                    raise httpx.HTTPStatusError(
+                        f"LLM API error {resp.status_code}: {error_text}",
+                        request=resp.request,
+                        response=resp,
+                    )
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue
@@ -121,14 +127,17 @@ class BaseLLMProvider(ABC):
                     try:
                         data = json.loads(payload)
                     except json.JSONDecodeError:
+                        logger.debug("Failed to decode streaming JSON payload: %.200s", payload)
                         continue
                     choices = data.get("choices")
                     if not choices:
                         continue
                     choice = choices[0]
                     delta = choice.get("delta", {})
+                    reasoning_content = delta.get("reasoning_content", "")
                     yield LLMChunk(
-                        content=delta.get("content") or delta.get("reasoning_content") or "",
+                        content=delta.get("content") or "",
+                        reasoning_content=reasoning_content,
                         finish_reason=choice.get("finish_reason"),
                         usage=data.get("usage", {}),
                     )

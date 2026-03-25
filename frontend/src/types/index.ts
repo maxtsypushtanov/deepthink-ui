@@ -4,6 +4,9 @@ export type ReasoningStrategy =
   | 'budget_forcing'
   | 'best_of_n'
   | 'tree_of_thoughts'
+  | 'persona_council'
+  | 'rubber_duck'
+  | 'socratic'
   | 'auto';
 
 export interface Message {

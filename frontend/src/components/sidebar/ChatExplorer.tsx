@@ -26,6 +26,7 @@ import {
   GripVertical,
   Check,
   X,
+  Search,
 } from 'lucide-react';
 
 // ── Draggable Conversation Item ──
@@ -90,7 +91,7 @@ function ConversationItem({
         setEditing(true);
       }}
     >
-      <div {...attributes} {...listeners} className="cursor-grab text-muted-foreground/50 hover:text-muted-foreground">
+      <div {...attributes} {...listeners} className="cursor-grab text-muted-foreground/30 hover:text-muted-foreground transition-colors">
         <GripVertical className="h-3 w-3" />
       </div>
       <MessageSquare className="h-3.5 w-3.5 shrink-0" />
@@ -106,17 +107,17 @@ function ConversationItem({
             }}
             onBlur={handleRename}
             onClick={(e) => e.stopPropagation()}
-            className="w-full rounded border border-border bg-background px-1 py-0 text-sm"
+            className="w-full rounded-md border border-border bg-background px-1.5 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring/40"
           />
         ) : (
           <>
-            <span className="truncate">{conv.title}</span>
+            <span className="truncate" title={conv.title}>{conv.title}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete();
               }}
-              className="ml-auto hidden rounded p-0.5 text-muted-foreground hover:text-destructive group-hover:block"
+              className="ml-auto hidden rounded p-0.5 text-muted-foreground hover:text-destructive group-hover:block transition-colors"
             >
               <Trash2 className="h-3 w-3" />
             </button>
@@ -198,7 +199,7 @@ function FolderItem({
         )}
         onClick={() => setExpanded(!expanded)}
       >
-        <div {...attributes} {...listeners} className="cursor-grab text-muted-foreground/50 hover:text-muted-foreground">
+        <div {...attributes} {...listeners} className="cursor-grab text-muted-foreground/30 hover:text-muted-foreground transition-colors">
           <GripVertical className="h-3 w-3" />
         </div>
         {!collapsed && (
@@ -233,8 +234,8 @@ function FolderItem({
             </div>
           ) : (
             <>
-              <span className="truncate">{folder.name}</span>
-              <span className="ml-auto text-[10px] text-muted-foreground/60">{itemCount}</span>
+              <span className="truncate" title={folder.name}>{folder.name}</span>
+              <span className="ml-auto text-[10px] text-muted-foreground/50 tabular-nums">{itemCount}</span>
               <div className="hidden items-center gap-0.5 group-hover:flex">
                 <button
                   onClick={(e) => {
@@ -334,13 +335,13 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
   const selectConversation = useChatStore((s) => s.selectConversation);
   const deleteConversation = useChatStore((s) => s.deleteConversation);
   const loadConversations = useChatStore((s) => s.loadConversations);
-  const loadFolders = useChatStore((s) => s.loadFolders);
   const createFolder = useChatStore((s) => s.createFolder);
   const renameFolder = useChatStore((s) => s.renameFolder);
   const deleteFolder = useChatStore((s) => s.deleteFolder);
   const moveConversation = useChatStore((s) => s.moveConversation);
   const moveFolder = useChatStore((s) => s.moveFolder);
 
+  const [search, setSearch] = useState('');
   const [dragActive, setDragActive] = useState<string | null>(null);
 
   const renameConversation = useCallback(
@@ -350,10 +351,6 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
     },
     [loadConversations],
   );
-
-  useEffect(() => {
-    loadFolders();
-  }, [loadFolders]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -402,6 +399,12 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
     [createFolder],
   );
 
+  // Search filtering
+  const isSearching = search.trim().length > 0;
+  const filteredConversations = isSearching
+    ? conversations.filter((c) => c.title.toLowerCase().includes(search.toLowerCase()))
+    : [];
+
   // Root level items
   const rootFolders = folders.filter((f) => !f.parent_folder_id);
   const rootConversations = conversations.filter((c) => !c.folder_id);
@@ -415,21 +418,63 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
     >
       <div className="flex-1 overflow-y-auto px-2">
         {!collapsed && (
-          <div className="mb-1 flex items-center justify-between px-1">
-            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-              Чаты
-            </span>
-            <button
-              onClick={() => handleCreateFolder()}
-              className="rounded p-0.5 text-muted-foreground hover:text-foreground"
-              title="Новая папка"
-            >
-              <FolderPlus className="h-3.5 w-3.5" />
-            </button>
+          <div className="mb-1.5 px-1">
+            <div className="relative mb-1.5">
+              <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground/40" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Поиск..."
+                className="w-full rounded-lg border border-border bg-background py-1 pl-7 pr-6 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring/40"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch('')}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground/40 hover:text-foreground transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                Чаты
+              </span>
+              <button
+                onClick={() => handleCreateFolder()}
+                className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                title="Новая папка"
+              >
+                <FolderPlus className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
         )}
 
-        {rootFolders.map((folder) => (
+        {/* Search results */}
+        {isSearching && !collapsed && (
+          <>
+            {filteredConversations.length === 0 ? (
+              <p className="px-2 py-4 text-center text-xs text-muted-foreground/50">Ничего не найдено</p>
+            ) : (
+              filteredConversations.map((conv) => (
+                <ConversationItem
+                  key={conv.id}
+                  conv={conv}
+                  isActive={activeId === conv.id}
+                  collapsed={collapsed}
+                  onSelect={() => selectConversation(conv.id)}
+                  onDelete={() => deleteConversation(conv.id)}
+                  onRename={renameConversation}
+                />
+              ))
+            )}
+          </>
+        )}
+
+        {/* Normal view (folders + grouped conversations) */}
+        {!isSearching && rootFolders.map((folder) => (
           <FolderItem
             key={folder.id}
             folder={folder}
@@ -448,13 +493,16 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
           />
         ))}
 
-        {rootConversations.length === 0 && rootFolders.length === 0 && !collapsed && (
-          <p className="text-center text-xs text-muted-foreground/50 py-8">
-            Начните диалог — он появится здесь
-          </p>
+        {!isSearching && rootConversations.length === 0 && rootFolders.length === 0 && !collapsed && (
+          <div className="flex flex-col items-center gap-1.5 py-8 px-4 text-center">
+            <MessageSquare className="h-5 w-5 text-muted-foreground/30" />
+            <p className="text-xs text-muted-foreground/50">
+              Начните диалог — он появится здесь
+            </p>
+          </div>
         )}
 
-        {!collapsed && rootConversations.length > 0 && (() => {
+        {!isSearching && !collapsed && rootConversations.length > 0 && (() => {
           const groups: Record<string, Conversation[]> = {};
           rootConversations.forEach((conv) => {
             const group = getDateGroup(conv.created_at);
@@ -482,7 +530,7 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
           ));
         })()}
 
-        {collapsed && rootConversations.map((conv) => (
+        {!isSearching && collapsed && rootConversations.map((conv) => (
           <ConversationItem
             key={conv.id}
             conv={conv}

@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { DeepThinkLogo } from '@/components/icons/DeepThinkLogo';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { ChatExplorer } from '@/components/sidebar/ChatExplorer';
 
@@ -31,21 +30,22 @@ export function Sidebar() {
     <>
       <aside
         className={cn(
-          'flex flex-col border-r border-border bg-card transition-all duration-300 ease-out',
+          'flex flex-col border-r border-border bg-card',
+          'transition-[width] duration-300 ease-out',
           collapsed ? 'w-14' : 'w-64',
         )}
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-3 py-3">
           {!collapsed && (
-            <div className="flex items-center gap-2">
-              <DeepThinkLogo size={20} />
-              <span className="text-sm font-semibold tracking-tight">DeepThink</span>
+            <div className="flex items-center gap-2 overflow-hidden">
+              <span className="text-sm font-semibold tracking-tight whitespace-nowrap">Deep Think UI</span>
             </div>
           )}
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label={collapsed ? 'Развернуть панель' : 'Свернуть панель'}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           >
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </button>
@@ -56,7 +56,8 @@ export function Sidebar() {
           <button
             onClick={() => createConversation()}
             className={cn(
-              'flex w-full items-center gap-2 rounded-lg bg-foreground/5 border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground',
+              'flex w-full items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground',
+              'transition-colors hover:bg-accent hover:text-foreground',
               collapsed && 'justify-center px-0',
             )}
           >
@@ -65,21 +66,23 @@ export function Sidebar() {
           </button>
         </div>
 
-        {/* Chat Explorer (folders + conversations tree) */}
+        {/* Chat Explorer */}
         <ChatExplorer collapsed={collapsed} />
 
         {/* Bottom actions */}
-        <div className="flex items-center justify-between border-t border-border px-3 py-2">
+        <div className="flex items-center justify-between border-t border-border px-3 py-2.5">
           <button
             onClick={toggleTheme}
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           >
             {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
           {!collapsed && (
             <button
               onClick={() => setSettingsOpen(true)}
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              aria-label="Настройки"
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             >
               <Settings className="h-4 w-4" />
             </button>

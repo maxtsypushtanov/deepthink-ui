@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -36,14 +37,25 @@ def _extract_json(raw: str | None) -> Any:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        # Try to find a JSON array or object in the text
-        import re
-        match = re.search(r'[\[{][\s\S]*[\]}]', text)
-        if match:
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError:
-                pass
+        pass
+
+    # Try to find a balanced JSON object or array
+    for start_char, end_char in [('{', '}'), ('[', ']')]:
+        start = text.find(start_char)
+        if start == -1:
+            continue
+        # Walk forward to find balanced closing
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == start_char:
+                depth += 1
+            elif text[i] == end_char:
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start:i + 1])
+                    except json.JSONDecodeError:
+                        break
     return None
 
 
@@ -112,18 +124,19 @@ class ThoughtTree:
 
         def dfs(node: ThoughtNode, path: list[ThoughtNode], total: float, count: int) -> None:
             nonlocal best, best_score
-            new_path = path + [node]
+            path.append(node)
             new_total = total + node.score
             new_count = count + 1
             if not node.children:
                 avg = new_total / new_count if new_count else 0
                 if avg > best_score:
                     best_score = avg
-                    best = list(new_path)
+                    best = list(path)
             else:
                 for child in node.children:
                     if child.status != NodeStatus.PRUNED:
-                        dfs(child, new_path, new_total, new_count)
+                        dfs(child, path, new_total, new_count)
+            path.pop()
 
         for root in self.root_nodes:
             dfs(root, [], 0.0, 0)
@@ -144,19 +157,42 @@ class ThoughtTree:
 # ── GToT Engine ──
 
 PLAN_PROMPT = """\
-You are a search planner for a code repository. Plan 2-4 parallel tool calls \
+You are a search planner for a code repository. Plan 2-6 parallel tool calls \
 to explore the codebase and gather information relevant to the task.
 
 Available tools:
-- search_code: Search code in the repo. Args: {"q": "query repo:owner/repo"}
-- get_file_contents: Get a file. Args: {"owner": "...", "repo": "...", "path": "..."}
-- list_commits: Recent commits. Args: {"owner": "...", "repo": "..."}
-- search_issues: Search issues. Args: {"q": "query"}
+
+Search & discovery:
+- search_code: Search code. Args: {{"q": "query repo:owner/repo"}}
+- search_repositories: Search repos. Args: {{"query": "keyword"}}
+- search_issues: Search issues/PRs. Args: {{"q": "query"}}
+- search_users: Search users. Args: {{"q": "query"}}
+
+Repository content:
+- get_file_contents: Get file or directory listing. Args: {{"owner": "...", "repo": "...", "path": "...", "branch": "..."}}
+- list_commits: Recent commits. Args: {{"owner": "...", "repo": "...", "sha": "branch"}}
+- list_branches: All branches. Args: {{"owner": "...", "repo": "..."}}
+
+Issues:
+- list_issues: List repo issues. Args: {{"owner": "...", "repo": "...", "state": "open|closed|all"}}
+- get_issue: Single issue details. Args: {{"owner": "...", "repo": "...", "issue_number": N}}
+
+Pull requests:
+- list_pull_requests: List PRs. Args: {{"owner": "...", "repo": "...", "state": "open|closed|all"}}
+- get_pull_request: PR details. Args: {{"owner": "...", "repo": "...", "pull_number": N}}
+- get_pull_request_files: Files changed in a PR. Args: {{"owner": "...", "repo": "...", "pull_number": N}}
+- get_pull_request_status: CI/check status. Args: {{"owner": "...", "repo": "...", "pull_number": N}}
+- get_pull_request_comments: Review comments. Args: {{"owner": "...", "repo": "...", "pull_number": N}}
+- get_pull_request_reviews: Submitted reviews. Args: {{"owner": "...", "repo": "...", "pull_number": N}}
+
+Code scanning:
+- list_code_scanning_alerts: Security alerts. Args: {{"owner": "...", "repo": "...", "severity": "critical|high|medium|low"}}
+- get_code_scanning_alert: Alert details. Args: {{"owner": "...", "repo": "...", "alertNumber": N}}
 
 Task: {task}
 Repository: {repo}
 
-Output JSON array: [{"tool": "tool_name", "args": {{...}}, "reasoning": "why this call helps"}]
+Output JSON array: [{{"tool": "tool_name", "args": {{...}}, "reasoning": "why this call helps"}}]
 Output ONLY the JSON array, no other text.
 """
 
@@ -176,7 +212,15 @@ Task: {task}
 Tool: {tool}({args}) — Score: {score}
 Result (first 500 chars): {result}
 
-If yes, output JSON array of follow-up calls: [{"tool": "...", "args": {{...}}, "reasoning": "..."}]
+You can use ANY of these tools for follow-up:
+search_code, search_repositories, search_issues, search_users,
+get_file_contents, list_commits, list_branches,
+list_issues, get_issue,
+list_pull_requests, get_pull_request, get_pull_request_files,
+get_pull_request_status, get_pull_request_comments, get_pull_request_reviews,
+list_code_scanning_alerts, get_code_scanning_alert.
+
+If yes, output JSON array of follow-up calls: [{{"tool": "...", "args": {{...}}, "reasoning": "..."}}]
 If no follow-up needed, output: []
 Output ONLY the JSON array.
 """
@@ -210,7 +254,7 @@ class GToTEngine:
     # ── 1. Plan initial exploration ──
 
     async def plan_exploration(self, task: str, repo: str) -> list[ThoughtNode]:
-        prompt = PLAN_PROMPT.replace("{task}", task).replace("{repo}", repo)
+        prompt = PLAN_PROMPT.format(task=task, repo=repo)
         resp = await self.provider.complete(LLMRequest(
             messages=[LLMMessage(role="user", content=prompt)],
             model=self.model,
@@ -297,33 +341,48 @@ class GToTEngine:
             })
             return node
 
-        results = await asyncio.gather(*(execute_one(n) for n in nodes), return_exceptions=True)
-        for i, r in enumerate(results):
-            if isinstance(r, Exception):
-                nodes[i].status = NodeStatus.FAILED
-                nodes[i].result_preview = str(r)
+        await asyncio.gather(*(execute_one(n) for n in nodes))
         return nodes
 
     # ── 3. Score results via LLM-as-judge (parallel) ──
 
     async def score_results(self, nodes: list[ThoughtNode], task: str) -> list[ThoughtNode]:
         async def score_one(node: ThoughtNode) -> ThoughtNode:
+            if node.status == NodeStatus.FAILED:
+                node.score = 0.0
+                node.score_reason = "tool call failed"
+                await self._event({
+                    "type": "gtot_node_scored",
+                    "node_id": node.id,
+                    "score": 0.0,
+                    "reason": node.score_reason,
+                })
+                return node
+
             if node.status != NodeStatus.COMPLETED:
                 node.score = 0.0
                 return node
 
-            prompt = (SCORE_PROMPT
-                .replace("{task}", task)
-                .replace("{tool}", node.tool_name)
-                .replace("{args}", json.dumps(node.tool_args, ensure_ascii=False))
-                .replace("{result}", str(node.result)[:500])
+            # Check if result contains error indicators
+            result_str = str(node.result or "")
+            if any(err in result_str.lower() for err in ["error", "invalid", "not found", "timeout", "failed"]):
+                # Penalize error results but still score them
+                error_penalty = True
+            else:
+                error_penalty = False
+
+            prompt = SCORE_PROMPT.format(
+                task=task,
+                tool=node.tool_name,
+                args=json.dumps(node.tool_args, ensure_ascii=False),
+                result=result_str[:500],
             )
             try:
                 resp = await self.provider.complete(LLMRequest(
                     messages=[LLMMessage(role="user", content=prompt)],
                     model=self.model,
                     temperature=0.0,
-                    max_tokens=100,
+                    max_tokens=150,
                     stream=False,
                 ))
                 raw = resp.content or ""
@@ -331,23 +390,38 @@ class GToTEngine:
 
                 parsed = _extract_json(raw)
                 if parsed and isinstance(parsed, dict):
-                    node.score = float(parsed.get("score", 0.5))
+                    node.score = min(1.0, max(0.0, float(parsed.get("score", 0.5))))
                     node.score_reason = parsed.get("reason", "")
                 else:
-                    # Regex fallback: find "score": 0.X anywhere in text
-                    import re
-                    score_match = re.search(r'"?score"?\s*[:=]\s*([\d.]+)', raw)
+                    # Flexible regex fallback: various score formats
+                    score_match = re.search(
+                        r'(?:score|Score|SCORE)\s*[":=\s]+\s*(0(?:\.\d+)?|1(?:\.0)?)',
+                        raw
+                    )
+                    if not score_match:
+                        # Try bare float pattern: "0.8" or "0.75"
+                        score_match = re.search(r'\b(0\.\d+|1\.0|0|1)\b', raw)
                     if score_match:
                         node.score = min(1.0, max(0.0, float(score_match.group(1))))
-                        reason_match = re.search(r'"?reason"?\s*[:=]\s*"([^"]*)"', raw)
-                        node.score_reason = reason_match.group(1) if reason_match else "regex extracted"
+                        reason_match = re.search(r'(?:reason|Reason)\s*[":=\s]+\s*"?([^"\n]+)"?', raw)
+                        node.score_reason = reason_match.group(1).strip() if reason_match else "extracted from response"
                     else:
-                        node.score = 0.5
-                        node.score_reason = f"could not parse: {raw[:80]}"
+                        node.score = 0.3  # Uncertain rather than neutral
+                        node.score_reason = f"unparseable response: {raw[:60]}"
+                        logger.warning("Scorer unparseable for %s: %s", node.id, raw[:120])
+
+                # Apply error penalty
+                if error_penalty and node.score > 0.3:
+                    node.score = min(node.score, 0.3)
+                    node.score_reason = f"error in result — {node.score_reason}"
+
             except Exception as e:
                 logger.warning("Scoring failed for node %s: %s", node.id, e)
-                node.score = 0.5
-                node.score_reason = "scoring failed — default"
+                node.score = 0.1
+                node.score_reason = f"scoring error: {e}"
+
+            # Truncate stored result to limit memory usage
+            node.result = node.result[:1000] if node.result else None
 
             await self._event({
                 "type": "gtot_node_scored",
@@ -377,18 +451,18 @@ class GToTEngine:
         if depth >= tree.max_depth:
             return []
 
-        new_nodes: list[ThoughtNode] = []
+        eligible = [n for n in scored_nodes
+                     if n.status == NodeStatus.COMPLETED and n.score >= self.pruning_threshold]
+        if not eligible:
+            return []
 
-        for node in scored_nodes:
-            if node.status != NodeStatus.COMPLETED or node.score < self.pruning_threshold:
-                continue
-
-            prompt = (EXPAND_PROMPT
-                .replace("{task}", task)
-                .replace("{tool}", node.tool_name)
-                .replace("{args}", json.dumps(node.tool_args, ensure_ascii=False))
-                .replace("{score}", str(node.score))
-                .replace("{result}", str(node.result)[:500])
+        async def _expand_one(node: ThoughtNode) -> list[ThoughtNode]:
+            prompt = EXPAND_PROMPT.format(
+                task=task,
+                tool=node.tool_name,
+                args=json.dumps(node.tool_args, ensure_ascii=False),
+                score=str(node.score),
+                result=str(node.result)[:500],
             )
             try:
                 resp = await self.provider.complete(LLMRequest(
@@ -400,7 +474,7 @@ class GToTEngine:
                 ))
                 expansions = _extract_json(resp.content)
                 if not isinstance(expansions, list) or len(expansions) == 0:
-                    continue
+                    return []
 
                 child_nodes: list[ThoughtNode] = []
                 for exp in expansions[:2]:  # max 2 children per node
@@ -420,11 +494,15 @@ class GToTEngine:
                         "parent_id": node.id,
                         "new_nodes": [{"id": c.id, "tool": c.tool_name, "args": c.tool_args, "reasoning": c.reasoning} for c in child_nodes],
                     })
-                    new_nodes.extend(child_nodes)
+                return child_nodes
 
             except (json.JSONDecodeError, KeyError):
-                continue
+                return []
 
+        results = await asyncio.gather(*(_expand_one(n) for n in eligible))
+        new_nodes: list[ThoughtNode] = []
+        for child_list in results:
+            new_nodes.extend(child_list)
         return new_nodes
 
     # ── Main run loop ──

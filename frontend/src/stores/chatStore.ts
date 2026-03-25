@@ -8,7 +8,7 @@ import type {
   ReasoningStrategy,
   StrategySelectedEvent,
 } from '@/types';
-import { api, streamChat } from '@/lib/api';
+import { api, streamChat, API_BASE } from '@/lib/api';
 import { generateId } from '@/lib/utils';
 
 interface StreamingState {
@@ -31,6 +31,17 @@ interface ChatStore {
   streaming: StreamingState;
   settings: ChatSettings;
   calendarMode: boolean;
+  githubMode: boolean;
+  calendarDraft: any | null;
+  executionPlan: {
+    strategy: string;
+    strategy_label: string;
+    domain: string;
+    domain_label: string;
+    steps: string[];
+    estimated_calls: number;
+    pendingMessage: string;
+  } | null;
   error: string | null;
   lastPersona: StrategySelectedEvent | null;
 
@@ -44,7 +55,13 @@ interface ChatStore {
   stopStreaming: () => void;
   updateSettings: (partial: Partial<ChatSettings>) => void;
   toggleCalendarMode: () => void;
+  toggleGitHubMode: () => void;
+  confirmCalendarDraft: () => Promise<void>;
+  dismissCalendarDraft: () => void;
+  acceptPlan: () => Promise<void>;
+  dismissPlan: () => void;
   clearError: () => void;
+  handleFileAnalysisStream: (resp: Response) => Promise<void>;
   // Folder actions
   loadFolders: () => Promise<void>;
   createFolder: (name: string, parentFolderId?: string | null) => Promise<void>;
@@ -54,9 +71,11 @@ interface ChatStore {
   moveFolder: (folderId: string, parentFolderId: string | null) => Promise<void>;
 }
 
+type ChatState = ChatStore;
+
 const DEFAULT_SETTINGS: ChatSettings = {
-  model: 'openai/gpt-oss-120b',
-  provider: 'custom',
+  model: 'google/gemini-3.1-flash-lite-preview',
+  provider: 'openrouter',
   strategy: 'auto',
   temperature: 0.7,
   maxTokens: 4096,
@@ -87,6 +106,167 @@ function flushContentBuffer() {
   }));
 }
 
+async function handleSSEStream(
+  body: Record<string, unknown>,
+  get: () => ChatState,
+  set: (fn: ((s: ChatState) => Partial<ChatState>) | Partial<ChatState>) => void,
+  onDone?: (data: any) => void,
+) {
+  abortController?.abort();
+  abortController = new AbortController();
+
+  try {
+    for await (const { event, data } of streamChat(body, abortController.signal)) {
+      if (abortController?.signal.aborted) break;
+
+      switch (event) {
+        case 'conversation':
+          if (data.conversation_id) {
+            const isNew = !get().activeConversationId;
+            set({ activeConversationId: data.conversation_id });
+            if (isNew) {
+              get().loadConversations().catch(() => {});
+            }
+          }
+          break;
+
+        case 'strategy_selected':
+          set((s) => ({
+            streaming: {
+              ...s.streaming,
+              strategyUsed: data.strategy,
+              currentPersona: data as StrategySelectedEvent,
+            },
+            lastPersona: data as StrategySelectedEvent,
+          }));
+          break;
+
+        case 'thinking_start':
+          set((s) => ({
+            streaming: { ...s.streaming, isThinking: true, strategyUsed: data.strategy },
+          }));
+          break;
+
+        case 'thinking_step':
+          set((s) => ({
+            streaming: {
+              ...s.streaming,
+              thinkingSteps: [
+                ...s.streaming.thinkingSteps,
+                {
+                  step_number: data.step,
+                  strategy: s.streaming.strategyUsed || '',
+                  content: data.content || data.label || '',
+                  duration_ms: 0,
+                  metadata: { type: data.type, content: data.content, ...(data.branches ? { branches: data.branches } : {}) },
+                },
+              ],
+            },
+          }));
+          break;
+
+        case 'content_delta':
+          contentBuffer += data.content;
+          bufferTokenCount += 1;
+          if (!rafId) {
+            rafId = requestAnimationFrame(flushContentBuffer);
+          }
+          break;
+
+        case 'thinking_end':
+          set((s) => ({
+            streaming: {
+              ...s.streaming,
+              isThinking: false,
+              thinkingSteps: data.steps?.length
+                ? data.steps.map((step: any, i: number) => ({
+                    step_number: step.step_number ?? i + 1,
+                    strategy: step.strategy ?? '',
+                    content: step.content ?? '',
+                    duration_ms: step.duration_ms ?? 0,
+                    metadata: step.metadata ?? step,
+                  }))
+                : s.streaming.thinkingSteps,
+            },
+          }));
+          break;
+
+        case 'done': {
+          // Flush any remaining buffered content
+          if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+          const pendingContent = contentBuffer;
+          contentBuffer = '';
+          bufferTokenCount = 0;
+
+          set((s) => {
+            const content = s.streaming.currentContent + pendingContent;
+            const resetStreaming = {
+              isStreaming: false,
+              currentContent: '',
+              thinkingSteps: [],
+              strategyUsed: null,
+              isThinking: false,
+              currentPersona: null,
+              clarificationQuestion: null,
+              tokensGenerated: 0,
+            };
+            // Don't add empty assistant messages
+            if (!content || !content.trim()) {
+              return { streaming: resetStreaming };
+            }
+            // Don't add duplicate — check if last message is already this assistant response
+            const lastMsg = s.messages[s.messages.length - 1];
+            if (lastMsg?.role === 'assistant' && lastMsg.content === content) {
+              return { streaming: resetStreaming };
+            }
+            const assistantMsg: Message = {
+              id: generateId(),
+              conversation_id: s.activeConversationId || '',
+              role: 'assistant',
+              content,
+              model: s.settings.model,
+              provider: s.settings.provider,
+              reasoning_strategy: s.streaming.strategyUsed || s.settings.strategy,
+              reasoning_trace: JSON.stringify(s.streaming.thinkingSteps),
+              created_at: new Date().toISOString(),
+            };
+            return {
+              messages: [...s.messages, assistantMsg],
+              streaming: resetStreaming,
+            };
+          });
+
+          if (onDone) onDone(data);
+          break;
+        }
+
+        case 'clarification_needed':
+          set((s) => ({
+            streaming: {
+              ...s.streaming,
+              isStreaming: false,
+              isThinking: false,
+              clarificationQuestion: data.question,
+            },
+          }));
+          break;
+
+        case 'error':
+          set((s) => ({ error: data.error, streaming: { ...s.streaming, isStreaming: false } }));
+          break;
+      }
+    }
+  } catch (e: any) {
+    if (e.name !== 'AbortError') {
+      set({ error: e.message });
+    }
+  } finally {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    if (contentBuffer) flushContentBuffer();
+    set((s) => s.streaming.isStreaming ? { streaming: { ...s.streaming, isStreaming: false } } : s);
+  }
+}
+
 export const useChatStore = create<ChatStore>((set, get) => ({
   conversations: [],
   folders: [],
@@ -104,6 +284,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
   settings: DEFAULT_SETTINGS,
   calendarMode: false,
+  githubMode: false,
+  calendarDraft: null,
+  executionPlan: null,
   error: null,
   lastPersona: null,
 
@@ -168,22 +351,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     set((s) => ({
       messages: [...s.messages, userMsg],
-      streaming: {
-        isStreaming: true,
-        currentContent: '',
-        thinkingSteps: [],
-        strategyUsed: null,
-        isThinking: false,
-        currentPersona: null,
-        clarificationQuestion: null,
-        tokensGenerated: 0,
-      },
       error: null,
     }));
 
-    abortController = new AbortController();
+    // For "none" strategy or very short messages, skip planning
+    if (settings.strategy === 'none' || content.trim().length < 10 || get().calendarMode || get().githubMode) {
+      set((s) => ({
+        streaming: {
+          isStreaming: true, currentContent: '', thinkingSteps: [],
+          strategyUsed: null, isThinking: false, currentPersona: null,
+          clarificationQuestion: null, tokensGenerated: 0,
+        },
+      }));
 
-    try {
       const body = {
         conversation_id: activeConversationId,
         message: content,
@@ -197,155 +377,85 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         tree_breadth: settings.treeBreadth,
         tree_depth: settings.treeDepth,
         calendar_mode: get().calendarMode,
+        github_mode: get().githubMode,
       };
 
-      for await (const { event, data } of streamChat(body)) {
-        if (abortController?.signal.aborted) break;
-
-        switch (event) {
-          case 'conversation':
-            if (!activeConversationId && data.conversation_id) {
-              set({ activeConversationId: data.conversation_id });
-              // Refresh conversation list
-              get().loadConversations();
-            }
-            break;
-
-          case 'strategy_selected':
-            set((s) => ({
-              streaming: {
-                ...s.streaming,
-                strategyUsed: data.strategy,
-                currentPersona: data as StrategySelectedEvent,
-              },
-              lastPersona: data as StrategySelectedEvent,
-            }));
-            break;
-
-          case 'thinking_start':
-            set((s) => ({
-              streaming: { ...s.streaming, isThinking: true, strategyUsed: data.strategy },
-            }));
-            break;
-
-          case 'thinking_step':
-            set((s) => ({
-              streaming: {
-                ...s.streaming,
-                thinkingSteps: [
-                  ...s.streaming.thinkingSteps,
-                  {
-                    step_number: data.step,
-                    strategy: data.type || '',
-                    content: data.label || '',
-                    duration_ms: 0,
-                    metadata: data,
-                  },
-                ],
-              },
-            }));
-            break;
-
-          case 'content_delta':
-            contentBuffer += data.content;
-            bufferTokenCount += 1;
-            if (!rafId) {
-              rafId = requestAnimationFrame(flushContentBuffer);
-            }
-            break;
-
-          case 'thinking_end':
-            set((s) => ({
-              streaming: {
-                ...s.streaming,
-                isThinking: false,
-                thinkingSteps: data.steps?.length
-                  ? data.steps
-                  : s.streaming.thinkingSteps,
-              },
-            }));
-            break;
-
-          case 'done': {
-            // Flush any remaining buffered content
-            if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-            const pendingContent = contentBuffer;
-            const pendingTokens = bufferTokenCount;
-            contentBuffer = '';
-            bufferTokenCount = 0;
-
-            set((s) => {
-              const content = s.streaming.currentContent + pendingContent;
-              const resetStreaming = {
-                isStreaming: false,
-                currentContent: '',
-                thinkingSteps: [],
-                strategyUsed: null,
-                isThinking: false,
-                currentPersona: null,
-                clarificationQuestion: null,
-                tokensGenerated: 0,
-              };
-              // Don't add empty assistant messages
-              if (!content || !content.trim()) {
-                return { streaming: resetStreaming };
-              }
-              // Don't add duplicate — check if last message is already this assistant response
-              const lastMsg = s.messages[s.messages.length - 1];
-              if (lastMsg?.role === 'assistant' && lastMsg.content === content) {
-                return { streaming: resetStreaming };
-              }
-              const assistantMsg: Message = {
-                id: generateId(),
-                conversation_id: s.activeConversationId || '',
-                role: 'assistant',
-                content,
-                model: settings.model,
-                provider: settings.provider,
-                reasoning_strategy: s.streaming.strategyUsed || settings.strategy,
-                reasoning_trace: JSON.stringify(s.streaming.thinkingSteps),
-                created_at: new Date().toISOString(),
-              };
-              return {
-                messages: [...s.messages, assistantMsg],
-                streaming: resetStreaming,
-              };
-            });
-
-            // Reload calendar if events were modified from chat
-            if (data?.calendar_result || get().calendarMode) {
-              import('@/stores/calendarStore').then(({ useCalendarStore }) => {
-                useCalendarStore.getState().loadWeekEvents();
-              }).catch(() => {});
-            }
-            break;
-          }
-
-          case 'clarification_needed':
-            set((s) => ({
-              streaming: {
-                ...s.streaming,
-                isStreaming: false,
-                isThinking: false,
-                clarificationQuestion: data.question,
-              },
-            }));
-            break;
-
-          case 'error':
-            set((s) => ({ error: data.error, streaming: { ...s.streaming, isStreaming: false } }));
-            break;
+      await handleSSEStream(body, get, set, (data) => {
+        if (data?.calendar_draft) set({ calendarDraft: data.calendar_draft });
+        else if (data?.calendar_result || get().calendarMode) {
+          import('@/stores/calendarStore').then(({ useCalendarStore }) => {
+            useCalendarStore.getState().loadWeekEvents();
+          }).catch(() => {});
         }
-      }
-    } catch (e: any) {
-      if (e.name !== 'AbortError') {
-        set({ error: e.message });
-      }
-    } finally {
-      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-      if (contentBuffer) flushContentBuffer();
-      set((s) => s.streaming.isStreaming ? { streaming: { ...s.streaming, isStreaming: false } } : s);
+      });
+      return;
     }
+
+    // Request execution plan
+    try {
+      const resp = await fetch(`${API_BASE}/api/chat/plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: content,
+          model: settings.model,
+          provider: settings.provider,
+          reasoning_strategy: settings.strategy,
+          temperature: settings.temperature,
+          max_tokens: settings.maxTokens,
+          budget_rounds: settings.budgetRounds,
+          best_of_n: settings.bestOfN,
+          tree_breadth: settings.treeBreadth,
+          tree_depth: settings.treeDepth,
+          calendar_mode: get().calendarMode,
+          github_mode: get().githubMode,
+        }),
+      });
+
+      if (resp.ok) {
+        const plan = await resp.json();
+        set({
+          executionPlan: { ...plan, pendingMessage: content },
+        });
+        return;  // Wait for user to accept
+      }
+    } catch {
+      // Plan request failed — execute directly as fallback
+    }
+
+    // Fallback: execute directly
+    set((s) => ({
+      streaming: {
+        isStreaming: true, currentContent: '', thinkingSteps: [],
+        strategyUsed: null, isThinking: false, currentPersona: null,
+        clarificationQuestion: null, tokensGenerated: 0,
+      },
+    }));
+
+    const body = {
+      conversation_id: activeConversationId,
+      message: content,
+      model: settings.model,
+      provider: settings.provider,
+      reasoning_strategy: settings.strategy,
+      temperature: settings.temperature,
+      max_tokens: settings.maxTokens,
+      budget_rounds: settings.budgetRounds,
+      best_of_n: settings.bestOfN,
+      tree_breadth: settings.treeBreadth,
+      tree_depth: settings.treeDepth,
+      calendar_mode: get().calendarMode,
+      github_mode: get().githubMode,
+    };
+
+    await handleSSEStream(body, get, set, (data) => {
+      if (data?.calendar_draft) set({ calendarDraft: data.calendar_draft });
+      else if (data?.calendar_result || get().calendarMode) {
+        import('@/stores/calendarStore').then(({ useCalendarStore }) => {
+          useCalendarStore.getState().loadWeekEvents();
+        }).catch(() => {});
+      }
+    });
   },
 
   sendClarification: async (answer: string) => {
@@ -361,163 +471,22 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       },
     }));
 
-    abortController = new AbortController();
+    const body = {
+      conversation_id: activeConversationId,
+      message: answer,
+      model: settings.model,
+      provider: settings.provider,
+      reasoning_strategy: settings.strategy,
+      temperature: settings.temperature,
+      max_tokens: settings.maxTokens,
+      budget_rounds: settings.budgetRounds,
+      best_of_n: settings.bestOfN,
+      tree_breadth: settings.treeBreadth,
+      tree_depth: settings.treeDepth,
+      clarification_context: clarificationContext,
+    };
 
-    try {
-      const body = {
-        conversation_id: activeConversationId,
-        message: answer,
-        model: settings.model,
-        provider: settings.provider,
-        reasoning_strategy: settings.strategy,
-        temperature: settings.temperature,
-        max_tokens: settings.maxTokens,
-        budget_rounds: settings.budgetRounds,
-        best_of_n: settings.bestOfN,
-        tree_breadth: settings.treeBreadth,
-        tree_depth: settings.treeDepth,
-        clarification_context: clarificationContext,
-      };
-
-      for await (const { event, data } of streamChat(body)) {
-        if (abortController?.signal.aborted) break;
-
-        switch (event) {
-          case 'conversation':
-            if (data.conversation_id) {
-              set({ activeConversationId: data.conversation_id });
-              get().loadConversations();
-            }
-            break;
-
-          case 'strategy_selected':
-            set((s) => ({
-              streaming: {
-                ...s.streaming,
-                strategyUsed: data.strategy,
-                currentPersona: data as StrategySelectedEvent,
-              },
-              lastPersona: data as StrategySelectedEvent,
-            }));
-            break;
-
-          case 'thinking_start':
-            set((s) => ({
-              streaming: { ...s.streaming, isThinking: true, strategyUsed: data.strategy },
-            }));
-            break;
-
-          case 'thinking_step':
-            set((s) => ({
-              streaming: {
-                ...s.streaming,
-                thinkingSteps: [
-                  ...s.streaming.thinkingSteps,
-                  {
-                    step_number: data.step,
-                    strategy: data.type || '',
-                    content: data.label || '',
-                    duration_ms: 0,
-                    metadata: data,
-                  },
-                ],
-              },
-            }));
-            break;
-
-          case 'content_delta':
-            contentBuffer += data.content;
-            bufferTokenCount += 1;
-            if (!rafId) {
-              rafId = requestAnimationFrame(flushContentBuffer);
-            }
-            break;
-
-          case 'thinking_end':
-            set((s) => ({
-              streaming: {
-                ...s.streaming,
-                isThinking: false,
-                thinkingSteps: data.steps?.length
-                  ? data.steps
-                  : s.streaming.thinkingSteps,
-              },
-            }));
-            break;
-
-          case 'done': {
-            // Flush any remaining buffered content
-            if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-            const pendingContent = contentBuffer;
-            const pendingTokens = bufferTokenCount;
-            contentBuffer = '';
-            bufferTokenCount = 0;
-
-            set((s) => {
-              const content = s.streaming.currentContent + pendingContent;
-              const resetStreaming = {
-                isStreaming: false,
-                currentContent: '',
-                thinkingSteps: [],
-                strategyUsed: null,
-                isThinking: false,
-                currentPersona: null,
-                clarificationQuestion: null,
-                tokensGenerated: 0,
-              };
-              // Don't add empty assistant messages
-              if (!content || !content.trim()) {
-                return { streaming: resetStreaming };
-              }
-              // Don't add duplicate
-              const lastMsg = s.messages[s.messages.length - 1];
-              if (lastMsg?.role === 'assistant' && lastMsg.content === content) {
-                return { streaming: resetStreaming };
-              }
-              const assistantMsg: Message = {
-                id: generateId(),
-                conversation_id: s.activeConversationId || '',
-                role: 'assistant',
-                content,
-                model: settings.model,
-                provider: settings.provider,
-                reasoning_strategy: s.streaming.strategyUsed || settings.strategy,
-                reasoning_trace: JSON.stringify(s.streaming.thinkingSteps),
-                created_at: new Date().toISOString(),
-              };
-              return {
-                messages: [...s.messages, assistantMsg],
-                streaming: resetStreaming,
-              };
-            });
-            break;
-          }
-
-          case 'clarification_needed':
-            set((s) => ({
-              streaming: {
-                ...s.streaming,
-                isStreaming: false,
-                isThinking: false,
-                clarificationQuestion: data.question,
-              },
-            }));
-            break;
-
-          case 'error':
-            set((s) => ({ error: data.error, streaming: { ...s.streaming, isStreaming: false } }));
-            break;
-        }
-      }
-    } catch (e: any) {
-      if (e.name !== 'AbortError') {
-        set({ error: e.message });
-      }
-    } finally {
-      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-      if (contentBuffer) flushContentBuffer();
-      set((s) => s.streaming.isStreaming ? { streaming: { ...s.streaming, isStreaming: false } } : s);
-    }
+    await handleSSEStream(body, get, set);
   },
 
   stopStreaming: () => {
@@ -531,12 +500,206 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   toggleCalendarMode: () => set((s) => ({ calendarMode: !s.calendarMode })),
+  toggleGitHubMode: () => set((s) => ({ githubMode: !s.githubMode })),
+
+  confirmCalendarDraft: async () => {
+    const draft = get().calendarDraft;
+    if (!draft) return;
+
+    const action = draft.calendar_action || 'create';
+    const title = draft.title || draft._event_title || 'событие';
+
+    try {
+      const resp = await fetch(`${API_BASE}/api/calendar/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(draft),
+      });
+
+      if (resp.ok) {
+        // Reload calendar
+        import('@/stores/calendarStore').then(({ useCalendarStore }) => {
+          useCalendarStore.getState().loadWeekEvents();
+        }).catch(() => {});
+
+        // Add success feedback as assistant message
+        const feedbackMap: Record<string, string> = {
+          create: `Встреча «${title}» создана.`,
+          delete: `Встреча «${title}» удалена.`,
+          update: `Встреча «${title}» обновлена.`,
+        };
+        const feedback = feedbackMap[action] || 'Действие выполнено.';
+        const cid = get().activeConversationId;
+        if (cid) {
+          set((s) => ({
+            messages: [...s.messages, {
+              id: generateId(),
+              conversation_id: cid,
+              role: 'assistant' as const,
+              content: feedback,
+              created_at: new Date().toISOString(),
+            }],
+          }));
+        }
+      } else {
+        const err = await resp.json().catch(() => ({ detail: 'Ошибка' }));
+        const cid = get().activeConversationId;
+        if (cid) {
+          set((s) => ({
+            messages: [...s.messages, {
+              id: generateId(),
+              conversation_id: cid,
+              role: 'assistant' as const,
+              content: `Не удалось выполнить действие: ${err.detail || 'ошибка сервера'}`,
+              created_at: new Date().toISOString(),
+            }],
+          }));
+        }
+      }
+    } catch (e) {
+      console.error('Failed to confirm calendar action:', e);
+    }
+    set({ calendarDraft: null });
+  },
+
+  dismissCalendarDraft: () => set({ calendarDraft: null }),
+
+  acceptPlan: async () => {
+    const plan = get().executionPlan;
+    if (!plan) return;
+    set({ executionPlan: null });
+
+    const { settings, activeConversationId } = get();
+    set((s) => ({
+      streaming: {
+        isStreaming: true,
+        currentContent: '',
+        thinkingSteps: [],
+        strategyUsed: null,
+        isThinking: false,
+        currentPersona: null,
+        clarificationQuestion: null,
+        tokensGenerated: 0,
+      },
+      error: null,
+    }));
+
+    const body = {
+      conversation_id: activeConversationId,
+      message: plan.pendingMessage,
+      model: settings.model,
+      provider: settings.provider,
+      reasoning_strategy: plan.strategy,  // Use the planned strategy
+      temperature: settings.temperature,
+      max_tokens: settings.maxTokens,
+      budget_rounds: settings.budgetRounds,
+      best_of_n: settings.bestOfN,
+      tree_breadth: settings.treeBreadth,
+      tree_depth: settings.treeDepth,
+      calendar_mode: get().calendarMode,
+      github_mode: get().githubMode,
+      confirm_plan: true,
+    };
+
+    await handleSSEStream(body, get, set, (data) => {
+      if (data?.calendar_draft) {
+        set({ calendarDraft: data.calendar_draft });
+      } else if (data?.calendar_result || get().calendarMode) {
+        import('@/stores/calendarStore').then(({ useCalendarStore }) => {
+          useCalendarStore.getState().loadWeekEvents();
+        }).catch(() => {});
+      }
+    });
+  },
+
+  dismissPlan: () => set({ executionPlan: null }),
 
   updateSettings: (partial) => {
     set((s) => ({ settings: { ...s.settings, ...partial } }));
   },
 
   clearError: () => set({ error: null }),
+
+  handleFileAnalysisStream: async (resp: Response) => {
+    // Process SSE stream from file analysis endpoint (same format as /api/chat)
+    const reader = resp.body?.getReader();
+    if (!reader) return;
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullContent = '';
+
+    set((s) => ({
+      streaming: { ...s.streaming, isStreaming: true, currentContent: '', thinkingSteps: [], isThinking: false, strategyUsed: null, currentPersona: null, clarificationQuestion: null, tokensGenerated: 0 },
+    }));
+
+    const processLine = (line: string) => {
+      if (line.startsWith('event: ')) {
+        currentEvent = line.slice(7).trim();
+      } else if (line.startsWith('data: ') && currentEvent) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (currentEvent === 'conversation' && data.conversation_id) {
+            // Don't switch conversation — we already know the ID
+          } else if (currentEvent === 'strategy_selected') {
+            set((s) => ({ streaming: { ...s.streaming, strategyUsed: data.strategy, currentPersona: data } }));
+          } else if (currentEvent === 'thinking_start') {
+            set((s) => ({ streaming: { ...s.streaming, isThinking: true } }));
+          } else if (currentEvent === 'thinking_step') {
+            set((s) => ({ streaming: { ...s.streaming, thinkingSteps: [...s.streaming.thinkingSteps, data] } }));
+          } else if (currentEvent === 'thinking_end') {
+            set((s) => ({ streaming: { ...s.streaming, isThinking: false } }));
+          } else if (currentEvent === 'content_delta' && data.content) {
+            fullContent += data.content;
+            set((s) => ({ streaming: { ...s.streaming, currentContent: fullContent } }));
+          } else if (currentEvent === 'error') {
+            set({ error: data.error || 'Ошибка анализа файла' });
+          } else if (currentEvent === 'done') {
+            if (fullContent) {
+              const cid = get().activeConversationId;
+              if (cid) {
+                set((s) => ({
+                  messages: [...s.messages, {
+                    id: generateId(),
+                    conversation_id: cid,
+                    role: 'assistant' as const,
+                    content: fullContent,
+                    reasoning_strategy: get().streaming.strategyUsed || undefined,
+                    created_at: new Date().toISOString(),
+                  }],
+                }));
+              }
+            }
+          }
+        } catch { /* malformed JSON — skip */ }
+        currentEvent = '';
+      }
+    };
+
+    let currentEvent = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) processLine(line);
+      }
+      // Process remaining buffer
+      if (buffer.trim()) {
+        for (const line of buffer.split('\n')) processLine(line);
+      }
+    } catch (e) {
+      set({ error: 'Ошибка при чтении потока анализа' });
+    } finally {
+      set((s) => ({
+        streaming: { ...s.streaming, isStreaming: false, currentContent: '', isThinking: false },
+      }));
+    }
+  },
 
   // ── Folder actions ──
 

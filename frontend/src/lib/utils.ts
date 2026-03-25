@@ -7,7 +7,7 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatTimestamp(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
 export function formatDuration(ms: number): string {
@@ -15,6 +15,69 @@ export function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+/** Strip LLM meta-text and internal reasoning from assistant content for display */
+export function cleanAssistantContent(text: string): string {
+  let cleaned = text;
+
+  // Phase 1: Strip <thinking>...</thinking> blocks
+  cleaned = cleaned.replace(/<thinking>[\s\S]*?<\/thinking>/g, '');
+  cleaned = cleaned.replace(/<thinking>/g, '').replace(/<\/thinking>/g, '');
+
+  // Phase 2: Strip line-level English reasoning patterns
+  const linePatterns = [
+    /^(?:User says|User'?s? (?:question|message|request|input))[\s:].*$/gim,
+    /^(?:Thinking|Let me think|Analyzing|Processing)[\s:].*$/gim,
+    /^(?:I need to|I should|I will|I'll|Let me|We need to|We should|According to)[\s].*$/gim,
+    /^(?:The user|This user|They want|They're asking)[\s].*$/gim,
+    /^(?:OK so|Okay so|Alright,|Hmm,|Wait,)[\s].*$/gim,
+    /^(?:Based on the (?:instructions|guidelines|rules|context))[\s,].*$/gim,
+    /^(?:My (?:task|job|role|goal) (?:is|here))[\s].*$/gim,
+    /^(?:System|Instructions?|Context|Note to self)[\s:].*$/gim,
+    /^\[(?:THINKING|REASONING|ANALYSIS|РАССУЖДЕНИЕ|INTERNAL)\].*$/gim,
+  ];
+  for (const p of linePatterns) {
+    cleaned = cleaned.replace(p, '');
+  }
+
+  // Phase 3: Strip leading English REASONING block before Cyrillic answer
+  // Only strip if it looks like internal reasoning, not legitimate English content
+  const hasCyrillic = /[а-яА-ЯёЁ]/.test(cleaned);
+  if (hasCyrillic) {
+    const lines = cleaned.split('\n');
+    let firstCyrIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim() && /[а-яА-ЯёЁ]/.test(lines[i])) {
+        firstCyrIdx = i;
+        break;
+      }
+    }
+    if (firstCyrIdx > 0) {
+      const prefix = lines.slice(0, firstCyrIdx).join('\n').trim();
+      // Only strip if prefix looks like reasoning (contains reasoning indicators)
+      const isReasoning = /\b(user|thinking|analyze|according|guidelines|instructions|need to|should|let me|step \d)/i.test(prefix);
+      if (prefix && !/[а-яА-ЯёЁ]/.test(prefix) && isReasoning) {
+        cleaned = lines.slice(firstCyrIdx).join('\n');
+      }
+    }
+  }
+
+  // Strip standalone JSON blocks that look like internal model output
+  cleaned = cleaned.replace(/^\s*\{[\s\S]*?"(?:spec|plan|code_changes|issues|decision)"[\s\S]*?\}\s*$/gm, '');
+  // Strip "Return JSON accordingly" and similar instructions
+  cleaned = cleaned.replace(/^(?:Return|Output|Respond with|Generate|Provide)[\s].*(?:JSON|json|accordingly|format).*$/gim, '');
+
+  // Phase 4: Convert <br> tags to newlines
+  cleaned = cleaned.replace(/<br\s*\/?>/gi, '\n');
+
+  // Phase 5: Clean up whitespace
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+  return cleaned;
+}
+
 export function generateId(): string {
-  return Math.random().toString(36).substring(2, 15);
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  }
 }
