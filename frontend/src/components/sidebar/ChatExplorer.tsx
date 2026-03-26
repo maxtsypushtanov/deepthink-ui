@@ -28,6 +28,7 @@ import {
   X,
   Search,
 } from 'lucide-react';
+import { ChatListSkeleton } from '@/components/Skeleton';
 
 // ── Draggable Conversation Item ──
 
@@ -225,7 +226,7 @@ function FolderItem({
                 }}
                 className="w-full rounded border border-border bg-background px-1 py-0 text-sm"
               />
-              <button onClick={handleRename} className="text-green-500 hover:text-green-400">
+              <button onClick={handleRename} className="text-foreground/50 hover:text-foreground">
                 <Check className="h-3 w-3" />
               </button>
               <button onClick={() => setEditing(false)} className="text-muted-foreground hover:text-foreground">
@@ -332,6 +333,7 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
   const conversations = useChatStore((s) => s.conversations);
   const folders = useChatStore((s) => s.folders);
   const activeId = useChatStore((s) => s.activeConversationId);
+  const loaded = useChatStore((s) => s.conversationsLoaded);
   const selectConversation = useChatStore((s) => s.selectConversation);
   const deleteConversation = useChatStore((s) => s.deleteConversation);
   const loadConversations = useChatStore((s) => s.loadConversations);
@@ -452,8 +454,11 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
           </div>
         )}
 
+        {/* Loading skeleton */}
+        {!loaded && !collapsed && <ChatListSkeleton />}
+
         {/* Search results */}
-        {isSearching && !collapsed && (
+        {loaded && isSearching && !collapsed && (
           <>
             {filteredConversations.length === 0 ? (
               <p className="px-2 py-4 text-center text-xs text-muted-foreground/50">Ничего не найдено</p>
@@ -474,7 +479,7 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
         )}
 
         {/* Normal view (folders + grouped conversations) */}
-        {!isSearching && rootFolders.map((folder) => (
+        {loaded && !isSearching && rootFolders.map((folder) => (
           <FolderItem
             key={folder.id}
             folder={folder}
@@ -493,7 +498,7 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
           />
         ))}
 
-        {!isSearching && rootConversations.length === 0 && rootFolders.length === 0 && !collapsed && (
+        {loaded && !isSearching && rootConversations.length === 0 && rootFolders.length === 0 && !collapsed && (
           <div className="flex flex-col items-center gap-1.5 py-8 px-4 text-center">
             <MessageSquare className="h-5 w-5 text-muted-foreground/30" />
             <p className="text-xs text-muted-foreground/50">
@@ -502,7 +507,7 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
           </div>
         )}
 
-        {!isSearching && !collapsed && rootConversations.length > 0 && (() => {
+        {loaded && !isSearching && !collapsed && rootConversations.length > 0 && (() => {
           const groups: Record<string, Conversation[]> = {};
           rootConversations.forEach((conv) => {
             const group = getDateGroup(conv.created_at);
@@ -530,7 +535,7 @@ export function ChatExplorer({ collapsed }: { collapsed: boolean }) {
           ));
         })()}
 
-        {!isSearching && collapsed && rootConversations.map((conv) => (
+        {loaded && !isSearching && collapsed && rootConversations.map((conv) => (
           <ConversationItem
             key={conv.id}
             conv={conv}

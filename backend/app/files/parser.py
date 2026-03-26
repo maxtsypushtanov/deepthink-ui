@@ -78,7 +78,71 @@ def parse_file(path: str | Path) -> dict:
         result["error"] = str(e)
 
     result["char_count"] = len(result["text"])
+
+    # TRIZ #6: Structural pre-scan — extract metadata for smart file analysis
+    result["structure"] = _quick_scan(result["text"], result["file_type"], ext)
+
     return result
+
+
+def _quick_scan(text: str, file_type: str, ext: str) -> dict:
+    """Fast structural analysis without LLM. Returns metadata for smart prompts."""
+    import re as _re
+    info: dict = {}
+
+    if file_type == "code":
+        # Extract function/class names
+        functions = _re.findall(r'(?:def|function|func|fn|async\s+def|async\s+function)\s+(\w+)', text)
+        classes = _re.findall(r'(?:class|struct|interface|enum|trait|impl)\s+(\w+)', text)
+        lines = text.count('\n') + 1
+        info["functions"] = functions[:20]
+        info["classes"] = classes[:10]
+        info["lines"] = lines
+        info["summary"] = f"{len(functions)} функций, {len(classes)} классов, {lines} строк"
+
+    elif file_type == "pdf":
+        pages = text.count('[Страница ')
+        # Extract section headings (lines in ALL CAPS or starting with digits)
+        headings = _re.findall(r'^\s*(?:\d+[\.\)]\s+)?[A-ZА-ЯЁ][A-ZА-ЯЁ\s]{5,}$', text, _re.MULTILINE)
+        info["pages"] = pages
+        info["headings"] = [h.strip() for h in headings[:10]]
+        info["summary"] = f"{pages} стр., {len(headings)} секций"
+
+    elif file_type in ("xlsx", "xls"):
+        sheets = _re.findall(r'\[Лист: (.+?)\]', text)
+        rows = text.count('\n')
+        info["sheets"] = sheets
+        info["rows"] = rows
+        info["summary"] = f"{len(sheets)} листов, ~{rows} строк"
+
+    elif file_type == "docx":
+        paragraphs = len([p for p in text.split('\n\n') if p.strip()])
+        words = len(text.split())
+        info["paragraphs"] = paragraphs
+        info["words"] = words
+        info["summary"] = f"{paragraphs} абзацев, {words} слов"
+
+    elif file_type == "pptx":
+        slides = text.count('[Слайд ')
+        info["slides"] = slides
+        info["summary"] = f"{slides} слайдов"
+
+    elif ext in ('.csv',):
+        lines_list = text.split('\n')
+        if lines_list:
+            columns = lines_list[0].split(',') if ',' in lines_list[0] else lines_list[0].split('\t')
+            info["columns"] = [c.strip().strip('"') for c in columns[:20]]
+            info["rows"] = len(lines_list) - 1
+            info["summary"] = f"{len(columns)} столбцов, {len(lines_list)-1} строк"
+
+    else:
+        lines = text.count('\n') + 1
+        words = len(text.split())
+        info["lines"] = lines
+        info["words"] = words
+        info["summary"] = f"{words} слов, {lines} строк"
+
+    return info
 
 
 def _parse_pdf(path: Path) -> str:
@@ -162,9 +226,46 @@ def _image_to_base64(path: Path) -> str:
 
 
 def _parse_docx(path: Path) -> str:
-    """Extract text from DOCX using python-docx."""
+    """Extract text from DOCX preserving heading structure for Cognitive Map.
+
+    Headings are converted to markdown-style markers so the section splitter
+    can detect them: # Heading 1, ## Heading 2, ### Heading 3, etc.
+    """
     from docx import Document
 
     doc = Document(str(path))
-    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-    return "\n\n".join(paragraphs)
+    parts = []
+    for p in doc.paragraphs:
+        text = p.text.strip()
+        if not text:
+            continue
+        style = (p.style.name or "").lower()
+        if "heading 1" in style or "заголовок 1" in style:
+            parts.append(f"# {text}")
+        elif "heading 2" in style or "заголовок 2" in style:
+            parts.append(f"## {text}")
+        elif "heading 3" in style or "заголовок 3" in style:
+            parts.append(f"### {text}")
+        elif "heading 4" in style or "заголовок 4" in style:
+            parts.append(f"#### {text}")
+        elif "heading" in style or "заголовок" in style:
+            parts.append(f"## {text}")
+        elif "title" in style or "название" in style:
+            parts.append(f"# {text}")
+        elif "subtitle" in style or "подзаголовок" in style:
+            parts.append(f"## {text}")
+        else:
+            parts.append(text)
+
+    # Also extract tables if present
+    for i, table in enumerate(doc.tables):
+        rows = []
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            if any(cells):
+                rows.append(" | ".join(cells))
+        if rows:
+            parts.append(f"\n### [Таблица {i + 1}]")
+            parts.append("\n".join(rows))
+
+    return "\n\n".join(parts)

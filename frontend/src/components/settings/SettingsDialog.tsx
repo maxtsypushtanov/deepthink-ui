@@ -3,18 +3,20 @@ import { useChatStore } from '@/stores/chatStore';
 import { api } from '@/lib/api';
 import type { ProviderSettings, ModelInfo } from '@/types';
 import { cn } from '@/lib/utils';
-import { X, Key, Globe, Check, Loader2, Search } from 'lucide-react';
+import { X, Key, Globe, Check, Loader2, Search, ExternalLink } from 'lucide-react';
+import { toast } from '@/hooks/useToast';
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-const PROVIDER_META: Record<string, { label: string; description: string; defaultUrl: string }> = {
+const PROVIDER_META: Record<string, { label: string; description: string; defaultUrl: string; keyUrl?: string }> = {
   openrouter: {
     label: 'OpenRouter',
     description: 'Доступ к 200+ моделям (GPT-4o, Claude, Llama, Gemini и др.)',
     defaultUrl: 'https://openrouter.ai/api/v1',
+    keyUrl: 'https://openrouter.ai/keys',
   },
   custom: {
     label: 'API эндпоинт',
@@ -65,8 +67,12 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
       const updated = await api.getProviders();
       setProviders(updated);
       setKeys((k) => ({ ...k, [provider]: '' }));
+      toast.success('API-ключ сохранён');
+      // Reload models for the saved provider
+      api.listModels(settings.provider).then((m) => setModels(m)).catch(() => {});
     } catch (e) {
       console.error(e);
+      toast.error('Ошибка сохранения ключа');
     } finally {
       setSaving(null);
     }
@@ -167,6 +173,12 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                           onChange={(e) => setKeys((k) => ({ ...k, [key]: e.target.value }))}
                           className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40"
                         />
+                        {meta.keyUrl && (
+                          <a href={meta.keyUrl} target="_blank" rel="noopener noreferrer"
+                            className="shrink-0 flex items-center gap-1 rounded-lg border border-border px-2.5 py-2 text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors">
+                            Получить <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
                       </div>
                       {key === 'custom' && (
                         <div className="flex items-center gap-2">

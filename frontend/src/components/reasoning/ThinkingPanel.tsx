@@ -17,44 +17,139 @@ interface Props {
 function StepIcon({ type }: { type?: string }) {
   switch (type) {
     case 'tool_call':
-      return <Search className="h-3 w-3 text-indigo-400" />;
+      return <Search className="h-3 w-3 text-muted-foreground" />;
     case 'tool_result':
-      return <Globe className="h-3 w-3 text-cyan-400" />;
+      return <Globe className="h-3 w-3 text-muted-foreground" />;
     case 'tool_error':
-      return <AlertTriangle className="h-3 w-3 text-red-400" />;
+      return <AlertTriangle className="h-3 w-3 text-muted-foreground" />;
     case 'reasoning':
     case 'extracted_thinking':
     case 'cot_activation':
-      return <Brain className="h-3 w-3 text-blue-400" />;
+      return <Brain className="h-3 w-3 text-muted-foreground" />;
     case 'vote':
     case 'synthesis':
     case 'tree_synthesis':
-      return <CheckCircle2 className="h-3 w-3 text-emerald-400" />;
+      return <CheckCircle2 className="h-3 w-3 text-muted-foreground" />;
     case 'candidate':
     case 'branch':
-      return <Globe className="h-3 w-3 text-orange-400" />;
+      return <Globe className="h-3 w-3 text-muted-foreground" />;
     default:
       return <Wrench className="h-3 w-3 text-muted-foreground" />;
   }
 }
 
-// ── Accent color for the left border per type ──
+// ── Left border — all monochrome with subtle brightness differences ──
 
 function getAccent(type?: string): string {
   switch (type) {
-    case 'tool_call': return 'border-l-indigo-400';
-    case 'tool_result': return 'border-l-cyan-400';
-    case 'tool_error': return 'border-l-red-400';
+    case 'tool_call': return 'border-l-foreground/20';
+    case 'tool_result': return 'border-l-foreground/15';
+    case 'tool_error': return 'border-l-foreground/25';
     case 'reasoning':
     case 'extracted_thinking':
-    case 'cot_activation': return 'border-l-blue-400';
+    case 'cot_activation': return 'border-l-foreground/15';
     case 'vote':
     case 'synthesis':
-    case 'tree_synthesis': return 'border-l-emerald-400';
+    case 'tree_synthesis': return 'border-l-foreground/10';
     case 'candidate':
-    case 'branch': return 'border-l-orange-400';
-    default: return 'border-l-muted-foreground/40';
+    case 'branch': return 'border-l-foreground/15';
+    default: return 'border-l-foreground/10';
   }
+}
+
+// ── TRIZ #11: Mini tree visualization for Tree of Thoughts ──
+
+interface TreeNode {
+  id: string;
+  level: number;
+  branch: number;
+  score: number;
+  parent: string | null;
+  content: string;
+  isBestPath?: boolean;
+}
+
+function MiniTreeView({ steps }: { steps: ThinkingStep[] }) {
+  // Extract tree nodes from thinking steps
+  const nodes: TreeNode[] = [];
+  const bestPath: string[] = [];
+
+  for (const step of steps) {
+    const m = step.metadata || {};
+    if (m.type === 'branch' && m.node_id) {
+      nodes.push({
+        id: m.node_id as string,
+        level: (m.level as number) ?? 0,
+        branch: (m.branch as number) ?? 0,
+        score: (m.score as number) ?? 0.5,
+        parent: (m.parent as string) ?? null,
+        content: (m.content as string) ?? step.content,
+      });
+    }
+    if (m.type === 'synthesis' && Array.isArray(m.best_path)) {
+      bestPath.push(...(m.best_path as string[]));
+    }
+  }
+
+  if (nodes.length === 0) {
+    // Fallback to flat list
+    return (
+      <div className="text-xs text-muted-foreground/50 text-center py-2">
+        Нет данных для визуализации дерева
+      </div>
+    );
+  }
+
+  // Mark best path nodes
+  const bestSet = new Set(bestPath);
+  for (const n of nodes) n.isBestPath = bestSet.has(n.id);
+
+  // Group by level
+  const levels: Map<number, TreeNode[]> = new Map();
+  for (const n of nodes) {
+    if (!levels.has(n.level)) levels.set(n.level, []);
+    levels.get(n.level)!.push(n);
+  }
+
+  const scoreColor = (score: number) =>
+    score >= 0.8 ? 'text-green-400 bg-green-400/10' :
+    score >= 0.5 ? 'text-yellow-400 bg-yellow-400/10' :
+    'text-red-400 bg-red-400/10';
+
+  return (
+    <div className="flex gap-4 overflow-x-auto py-1">
+      {Array.from(levels.entries()).sort(([a], [b]) => a - b).map(([level, levelNodes]) => (
+        <div key={level} className="flex flex-col gap-1.5 min-w-[140px]">
+          <span className="text-[9px] text-muted-foreground/40 uppercase tracking-wider">
+            Уровень {level + 1}
+          </span>
+          {levelNodes.map((node) => (
+            <div
+              key={node.id}
+              className={cn(
+                'rounded-lg border px-2 py-1.5 text-[11px] transition-all',
+                node.isBestPath
+                  ? 'border-foreground/30 bg-foreground/5 font-medium'
+                  : 'border-border bg-card/50',
+              )}
+            >
+              <div className="flex items-center justify-between gap-1 mb-0.5">
+                <span className={cn('rounded px-1 py-0.5 text-[9px] font-mono', scoreColor(node.score))}>
+                  {node.score.toFixed(2)}
+                </span>
+                {node.isBestPath && (
+                  <CheckCircle2 className="h-2.5 w-2.5 text-foreground/50" />
+                )}
+              </div>
+              <p className="text-muted-foreground line-clamp-2 leading-tight">
+                {node.content.slice(0, 80)}
+              </p>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ── Single collapsible reasoning block ──
@@ -113,7 +208,7 @@ function DetailContent({ type, content }: { type?: string; content: string }) {
       <div className="space-y-0.5">
         {content.split('\n').filter(Boolean).map((line, i) => (
           <div key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <Search className="h-2.5 w-2.5 shrink-0 text-indigo-400/60" />
+            <Search className="h-2.5 w-2.5 shrink-0 text-muted-foreground/50" />
             <span className="truncate font-mono">{line}</span>
           </div>
         ))}
@@ -130,7 +225,7 @@ function DetailContent({ type, content }: { type?: string; content: string }) {
       <div className="space-y-0.5">
         {show.map((line, i) => (
           <div key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <Globe className="h-2.5 w-2.5 shrink-0 text-cyan-400/60" />
+            <Globe className="h-2.5 w-2.5 shrink-0 text-muted-foreground/50" />
             <span className="truncate">{line}</span>
           </div>
         ))}
@@ -190,8 +285,13 @@ export function ThinkingPanel({ steps, strategy, isLive, persona, clarificationQ
         )}
       </button>
 
-      {/* Steps list */}
-      {!collapsed && (
+      {/* Steps list — tree visualization for tree_of_thoughts, flat list for others */}
+      {!collapsed && strategy === 'tree_of_thoughts' && (
+        <div className="rounded-b-lg border border-t-0 border-border bg-card/30 p-3">
+          <MiniTreeView steps={steps} />
+        </div>
+      )}
+      {!collapsed && strategy !== 'tree_of_thoughts' && (
         <div className="rounded-b-lg border border-t-0 border-border bg-card/30 divide-y divide-border/30">
           {steps.map((step, i) => (
             <ReasoningBlock

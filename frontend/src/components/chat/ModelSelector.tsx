@@ -28,7 +28,7 @@ export function ModelSelector() {
         className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-foreground hover:bg-accent transition-colors"
       >
         <span className="font-medium truncate max-w-[180px]">
-          {currentModel?.name || settings.model.split('/').pop() || 'Select model'}
+          {currentModel?.name || settings.model.split('/').pop() || 'Выбор модели'}
         </span>
         {models.length === 0 && (
           <span className="relative flex h-2 w-2" title="API-ключ не настроен">

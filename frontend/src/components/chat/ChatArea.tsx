@@ -1,301 +1,238 @@
-import { useRef, useEffect, useState } from 'react';
-import { Brain, Sparkles, GitBranch, TreePine, Target, Zap, Calendar, CalendarPlus, CalendarX, Pencil, Check, X, AlertCircle, Clock, Loader2, Users, Bug, HelpCircle } from 'lucide-react';
+import { useRef, useEffect, useState, useCallback } from 'react';
+import { Check, X, AlertCircle, Loader2, ArrowDown, RefreshCw } from 'lucide-react';
 import { useChatStore } from '@/stores/chatStore';
+import { useShallow } from 'zustand/react/shallow';
 import { ChatMessage } from './ChatMessage';
+import { ProactiveMessage } from './ProactiveMessage';
 import { ChatInput } from './ChatInput';
 import { StreamingMessage } from './StreamingMessage';
-import { EmptyState } from './EmptyState';
-import { PersonaIndicator } from '@/components/reasoning/PersonaIndicator';
+import { EmptyState, SuggestionChips } from './EmptyState';
+import { CalendarActionCard } from './CalendarActionCard';
+import { AmbientCalendarHint } from './AmbientCalendarHint';
 import { QuoteToolbar } from './QuoteToolbar';
 import { ForkView } from './ForkView';
-import { useForkStore } from '@/stores/forkStore';
+import { ChatSearch } from './ChatSearch';
+import { getStrategy } from '@/lib/strategies';
 import { cn } from '@/lib/utils';
 
-const STRATEGY_ICONS: Record<string, React.ComponentType<any>> = {
-  auto: Zap,
-  cot: Brain,
-  budget_forcing: Sparkles,
-  best_of_n: GitBranch,
-  tree_of_thoughts: TreePine,
-  persona_council: Users,
-  rubber_duck: Bug,
-  socratic: HelpCircle,
-  none: Target,
-};
+/* ── Plan Card ── */
 
 function PlanCard() {
   const plan = useChatStore((s) => s.executionPlan);
   const accept = useChatStore((s) => s.acceptPlan);
   const dismiss = useChatStore((s) => s.dismissPlan);
-
   if (!plan) return null;
-
-  const Icon = STRATEGY_ICONS[plan.strategy] || Zap;
+  const { icon: Icon } = getStrategy(plan.strategy);
 
   return (
     <div className="mx-auto mb-4 w-full max-w-lg animate-slide-up">
-      <div className="rounded-xl border border-primary/30 bg-card p-4 shadow-lg">
+      <div className="rounded-xl border border-border bg-card p-4">
         <div className="mb-3 flex items-center gap-2">
-          <Icon className="h-4 w-4 text-primary" />
+          <Icon className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">План выполнения</span>
         </div>
-
-        <div className="mb-3 space-y-2">
-          <div className="flex gap-2 text-sm">
-            <span className="text-muted-foreground w-24 shrink-0">Стратегия:</span>
-            <span className="font-medium">{plan.strategy_label}</span>
-          </div>
-          <div className="flex gap-2 text-sm">
-            <span className="text-muted-foreground w-24 shrink-0">Область:</span>
-            <span>{plan.domain_label}</span>
-          </div>
-          <div className="flex gap-2 text-sm">
-            <span className="text-muted-foreground w-24 shrink-0">LLM вызовов:</span>
-            <span className="font-mono text-xs">~{plan.estimated_calls}</span>
-          </div>
+        <div className="mb-3 space-y-1.5 text-sm">
+          <div className="flex gap-2"><span className="text-muted-foreground w-24 shrink-0">Стратегия:</span><span>{plan.strategy_label}</span></div>
+          <div className="flex gap-2"><span className="text-muted-foreground w-24 shrink-0">Домен:</span><span>{plan.domain_label}</span></div>
+          <div className="flex gap-2"><span className="text-muted-foreground w-24 shrink-0">Вызовов LLM:</span><span className="font-mono text-xs">~{plan.estimated_calls}</span></div>
         </div>
-
-        <div className="mb-3">
-          <p className="text-xs font-medium text-muted-foreground mb-1.5">Шаги:</p>
-          <ol className="space-y-1">
-            {plan.steps.map((step, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm">
-                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold">
-                  {i + 1}
-                </span>
-                <span className="text-muted-foreground">{step}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={accept}
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            <Check className="h-3.5 w-3.5" />
-            Запустить
+        <ol className="mb-3 space-y-1">
+          {plan.steps.map((step, i) => (
+            <li key={i} className="flex items-start gap-2 text-sm">
+              <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold">{i + 1}</span>
+              <span className="text-muted-foreground">{step}</span>
+            </li>
+          ))}
+        </ol>
+        <div className="flex gap-2">
+          <button onClick={accept} className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90 transition-colors">
+            <Check className="inline h-3.5 w-3.5 mr-1" />Выполнить
           </button>
-          <button
-            onClick={dismiss}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
-          >
-            <X className="h-3.5 w-3.5" />
-            Отмена
-          </button>
+          <button onClick={dismiss} className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground hover:bg-muted transition-colors">Отмена</button>
         </div>
       </div>
     </div>
   );
 }
 
-function formatCalDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString('ru-RU', {
-      weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
-    });
-  } catch { return iso; }
-}
-
-function CalendarDraftCard() {
-  const draft = useChatStore((s) => s.calendarDraft);
-  const confirm = useChatStore((s) => s.confirmCalendarDraft);
-  const dismiss = useChatStore((s) => s.dismissCalendarDraft);
-  const [confirming, setConfirming] = useState(false);
-
-  if (!draft) return null;
-
-  const action: string = draft.calendar_action || 'create';
-  const isDelete = action === 'delete';
-  const isUpdate = action === 'update';
-
-  // For delete/update, use enriched _event_* fields from backend
-  const displayTitle = draft.title || draft._event_title || '';
-  const displayStart = draft.start_time || draft._event_start || '';
-  const displayEnd = draft.end_time || draft._event_end || '';
-
-  const ActionIcon = isDelete ? CalendarX : isUpdate ? Pencil : CalendarPlus;
-  const actionLabel = isDelete ? 'Удалить встречу?' : isUpdate ? 'Изменить встречу?' : 'Создать встречу?';
-  const accentColor = isDelete ? 'border-red-500/30' : isUpdate ? 'border-amber-500/30' : 'border-primary/30';
-  const iconColor = isDelete ? 'text-red-400 bg-red-500/10' : isUpdate ? 'text-amber-400 bg-amber-500/10' : 'text-primary bg-primary/10';
-
-  const handleConfirm = async () => {
-    setConfirming(true);
-    await confirm();
-  };
-
-  return (
-    <div className="mx-auto mb-4 w-full max-w-lg animate-slide-up">
-      <div className={cn('rounded-xl border bg-card shadow-lg overflow-hidden', accentColor)}>
-        {/* Header */}
-        <div className="flex items-center gap-3 px-4 pt-4 pb-2">
-          <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg', iconColor)}>
-            <ActionIcon className="h-4 w-4" strokeWidth={1.5} />
-          </div>
-          <span className="text-sm font-semibold">{actionLabel}</span>
-        </div>
-
-        {/* Event details */}
-        <div className="px-4 pb-3">
-          {displayTitle && (
-            <p className="text-sm font-medium mt-1">{displayTitle}</p>
-          )}
-
-          {(displayStart || displayEnd) && (
-            <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-foreground">
-              <Clock className="h-3 w-3 shrink-0" />
-              <span>
-                {displayStart && formatCalDate(displayStart)}
-                {displayStart && displayEnd && ' — '}
-                {displayEnd && new Date(displayEnd).toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </div>
-          )}
-
-          {draft.description && (
-            <p className="mt-2 text-xs text-muted-foreground/80 italic">{draft.description}</p>
-          )}
-
-          {/* For update: show what changed */}
-          {isUpdate && draft._event_title && draft.title && draft.title !== draft._event_title && (
-            <p className="mt-1.5 text-[10px] text-muted-foreground/60">
-              Было: {draft._event_title}
-            </p>
-          )}
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-2 border-t border-border/50 px-4 py-3 bg-accent/30">
-          <button
-            onClick={handleConfirm}
-            disabled={confirming}
-            className={cn(
-              'flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium transition-colors',
-              isDelete
-                ? 'bg-red-500 text-white hover:bg-red-600'
-                : 'bg-primary text-primary-foreground hover:bg-primary/90',
-              confirming && 'opacity-60 pointer-events-none',
-            )}
-          >
-            {confirming ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-            {isDelete ? 'Удалить' : isUpdate ? 'Сохранить' : 'Создать'}
-          </button>
-          <button
-            onClick={dismiss}
-            disabled={confirming}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted-foreground hover:bg-accent transition-colors"
-          >
-            Отмена
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+/* ── Chat Area ── */
 
 export function ChatArea() {
-  const messages = useChatStore((s) => s.messages);
-  const streaming = useChatStore((s) => s.streaming);
-  const settings = useChatStore((s) => s.settings);
-  const activeId = useChatStore((s) => s.activeConversationId);
-  const conversations = useChatStore((s) => s.conversations);
-  const error = useChatStore((s) => s.error);
+  const { messages, streaming, activeId, conversations, error } = useChatStore(
+    useShallow((s) => ({
+      messages: s.messages,
+      streaming: s.streaming,
+      activeId: s.activeConversationId,
+      conversations: s.conversations,
+      error: s.error,
+    })),
+  );
   const clearError = useChatStore((s) => s.clearError);
-  const lastPersona = useChatStore((s) => s.lastPersona);
+  const sendMessage = useChatStore((s) => s.sendMessage);
+
+  const handleRetry = () => {
+    const lastUserMsg = messages.filter((m) => m.role === 'user').at(-1);
+    if (!lastUserMsg) return;
+    clearError();
+    sendMessage(lastUserMsg.content);
+  };
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const userScrolledUp = useRef(false);
 
-  const displayPersona = streaming.currentPersona || lastPersona;
   const activeTitle = conversations.find((c) => c.id === activeId)?.title;
+  const isEmpty = messages.length === 0 && !streaming.isStreaming && !streaming.clarificationQuestion;
 
-  // Auto-scroll: use scrollTop on the container for reliability
+  const scrollToBottom = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    userScrolledUp.current = false;
+  }, []);
+
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    // Always scroll on new messages or when streaming starts
-    requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight;
-    });
+    const h = () => {
+      const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+      userScrolledUp.current = dist > 80;
+      setShowScrollBtn(dist > 80 && messages.length > 0);
+    };
+    el.addEventListener('scroll', h, { passive: true });
+    return () => el.removeEventListener('scroll', h);
+  }, [messages.length]);
+
+  useEffect(() => {
+    if (userScrolledUp.current) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
   }, [messages.length, streaming.isStreaming]);
 
-  // Throttled scroll during content streaming
   useEffect(() => {
-    if (!streaming.isStreaming) return;
+    if (!streaming.isStreaming || userScrolledUp.current) return;
     const el = scrollContainerRef.current;
     if (!el) return;
-    const raf = requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight;
-    });
+    const raf = requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
     return () => cancelAnimationFrame(raf);
   }, [streaming.currentContent, streaming.thinkingSteps.length]);
 
+  // Empty state: centered composer
+  if (isEmpty) {
+    return (
+      <div className="relative flex h-full flex-col">
+        <div className="flex-1 flex flex-col items-center justify-center px-4">
+          <div className="w-full max-w-xl">
+            <EmptyState />
+            <ChatInput />
+            <SuggestionChips />
+          </div>
+        </div>
+        <div className="pb-3 text-center">
+          <p className="text-[11px] text-muted-foreground/30 select-none">
+            ⌘K команды · Перетащите файлы · Просто начните писать
+          </p>
+        </div>
+        <ChatSearch />
+        <QuoteToolbar />
+        <ForkView />
+      </div>
+    );
+  }
+
+  // Has messages
   return (
-    <main className="flex h-full flex-col">
-      {/* Top bar */}
-      <header className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2">
-        {activeTitle ? (
-          <span className="text-xs text-muted-foreground truncate max-w-[280px]" title={activeTitle}>
-            {activeTitle}
-          </span>
-        ) : (
-          <span className="text-xs text-muted-foreground/40">DeepThink</span>
-        )}
-        <PersonaIndicator persona={displayPersona} />
+    <div className="relative flex h-full flex-col">
+      <header className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2 min-h-[40px]">
+        <div className="flex items-center gap-2 min-w-0">
+          {activeTitle ? (
+            <span className="text-[13px] text-muted-foreground truncate max-w-[400px]">{activeTitle}</span>
+          ) : (
+            <span className="text-[13px] text-muted-foreground/30">DeepThink</span>
+          )}
+          {streaming.isStreaming && (
+            <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground animate-fade-in">
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-foreground/40 animate-pulse" />
+              {streaming.isThinking ? 'Думает...' : 'Пишет...'}
+            </span>
+          )}
+        </div>
       </header>
 
-      {/* Messages */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto scroll-shadow">
-        {messages.length === 0 && !streaming.isStreaming ? (
-          <EmptyState />
-        ) : (
-          <div className="mx-auto max-w-3xl px-4 py-6" data-chat-messages>
-            {messages.map((msg, i) => (
-              <div key={msg.id} style={{ animationDelay: `${Math.min(i * 30, 150)}ms` }}>
-                <ChatMessage message={msg} />
-              </div>
-            ))}
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-3xl px-4 py-6" data-chat-messages>
+          {/* Proactive agent: morning briefing & meeting reminders */}
+          <ProactiveMessage />
 
-            {streaming.isStreaming && (streaming.currentContent || streaming.isThinking || streaming.thinkingSteps.length > 0) && (
-              <StreamingMessage
-                content={streaming.currentContent}
-                isThinking={streaming.isThinking}
-                thinkingSteps={streaming.thinkingSteps}
-                strategy={streaming.strategyUsed}
-                persona={streaming.currentPersona}
-              />
-            )}
+          {messages.map((msg) => (
+            <ChatMessage key={msg.id} message={msg} />
+          ))}
 
-            {error && (
-              <div className="animate-slide-up mb-4 flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3">
-                <AlertCircle className="h-4 w-4 shrink-0 text-destructive mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-destructive">{error}</p>
-                  <button
-                    onClick={clearError}
-                    className="mt-1.5 text-xs text-destructive/70 hover:text-destructive underline underline-offset-2 transition-colors"
-                  >
-                    Закрыть
-                  </button>
+          {(streaming.isStreaming || streaming.clarificationQuestion) && (
+            <StreamingMessage
+              content={streaming.currentContent}
+              isThinking={streaming.isThinking}
+              thinkingSteps={streaming.thinkingSteps}
+              strategy={streaming.strategyUsed}
+              persona={streaming.currentPersona}
+            />
+          )}
+
+          {error && (
+            <div className="animate-slide-up mb-4 flex items-start gap-3 rounded-xl border border-border bg-card px-4 py-3">
+              <AlertCircle className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-foreground/70">
+                  {error.includes('No API key') || error.includes('api_key')
+                    ? 'API-ключ не настроен. Добавьте ключ в настройках, чтобы начать работу.'
+                    : error}
+                </p>
+                <div className="mt-2 flex gap-2">
+                  {(error.includes('No API key') || error.includes('api_key')) && (
+                    <button
+                      onClick={() => { clearError(); window.dispatchEvent(new CustomEvent('deepthink:open-settings')); }}
+                      className="flex items-center gap-1 rounded-lg bg-foreground px-3 py-1.5 text-xs text-background hover:bg-foreground/90 transition-colors"
+                    >
+                      Открыть настройки
+                    </button>
+                  )}
+                  {messages.some((m) => m.role === 'user') && !error.includes('No API key') && (
+                    <button onClick={handleRetry} className="flex items-center gap-1 rounded-lg bg-muted px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                      <RefreshCw className="h-3 w-3" />Повторить
+                    </button>
+                  )}
+                  <button onClick={clearError} className="text-xs text-muted-foreground/50 hover:text-foreground transition-colors">Скрыть</button>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            <PlanCard />
-            <CalendarDraftCard />
-
-            <div ref={bottomRef} />
-          </div>
-        )}
+          <PlanCard />
+          <CalendarActionCard />
+          <div ref={bottomRef} />
+        </div>
       </div>
 
-      {/* Input */}
-      <div className="shrink-0">
+      {showScrollBtn && (
+        <div className="absolute bottom-[72px] left-1/2 -translate-x-1/2 z-10 animate-fade-in">
+          <button onClick={scrollToBottom}
+            className="flex items-center rounded-full border border-border bg-card/95 backdrop-blur-sm px-3 py-1.5 hover:bg-muted transition-colors">
+            <ArrowDown className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
+        </div>
+      )}
+
+      {/* Ambient calendar hint + composer */}
+      <div className="shrink-0 border-t border-border">
+        <AmbientCalendarHint />
         <ChatInput />
       </div>
 
+      <ChatSearch />
       <QuoteToolbar />
       <ForkView />
-    </main>
+    </div>
   );
 }

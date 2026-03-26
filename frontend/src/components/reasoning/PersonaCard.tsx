@@ -15,7 +15,7 @@ export function PersonaCard({ persona }: Props) {
   return (
     <div className="animate-fade-in mb-3 rounded-lg border border-border bg-card/50 px-4 py-3">
       <div className="flex items-center gap-2">
-        <Brain className="h-4 w-4 text-purple-400" />
+        <Brain className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium text-foreground">{persona.label}</span>
       </div>
       <div className="mt-1.5 flex items-center gap-2">

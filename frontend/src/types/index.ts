@@ -7,6 +7,7 @@ export type ReasoningStrategy =
   | 'persona_council'
   | 'rubber_duck'
   | 'socratic'
+  | 'triz'
   | 'auto';
 
 export interface Message {
@@ -79,6 +80,23 @@ export interface StrategySelectedEvent {
 }
 
 export type ThemeMode = 'dark' | 'light';
+
+/** Discriminated union for all SSE event types from /api/chat */
+export type SSEEvent =
+  | { event: 'conversation'; data: { conversation_id: string } }
+  | { event: 'strategy_selected'; data: StrategySelectedEvent }
+  | { event: 'thinking_start'; data: { strategy: string } }
+  | { event: 'thinking_step'; data: ThinkingStep }
+  | { event: 'thinking_end'; data: Record<string, unknown> }
+  | { event: 'content_delta'; data: { content: string; tokens?: number } }
+  | { event: 'done'; data: { message_id: string; tokens_used?: number; model?: string } }
+  | { event: 'error'; data: { error: string } }
+  | { event: 'calendar_draft'; data: Record<string, unknown> }
+  | { event: 'execution_plan'; data: { strategy: string; strategy_label: string; domain: string; domain_label: string; steps: string[]; estimated_calls: number } }
+  | { event: 'clarification_needed'; data: { question: string } }
+  | { event: 'tool_call'; data: { tool: string; arguments: Record<string, unknown> } }
+  | { event: 'tool_result'; data: { tool: string; result: string } }
+  | { event: 'tool_error'; data: { tool: string; error: string } };
 
 export interface ChatSettings {
   model: string;

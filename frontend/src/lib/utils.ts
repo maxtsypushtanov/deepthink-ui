@@ -7,7 +7,17 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatTimestamp(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffH = Math.floor(diffMs / 3600000);
+
+  if (diffMin < 1) return 'только что';
+  if (diffMin < 60) return `${diffMin} мин назад`;
+  if (diffH < 24 && d.getDate() === now.getDate()) {
+    return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  }
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 export function formatDuration(ms: number): string {
@@ -34,6 +44,21 @@ export function cleanAssistantContent(text: string): string {
     /^(?:My (?:task|job|role|goal) (?:is|here))[\s].*$/gim,
     /^(?:System|Instructions?|Context|Note to self)[\s:].*$/gim,
     /^\[(?:THINKING|REASONING|ANALYSIS|РАССУЖДЕНИЕ|INTERNAL)\].*$/gim,
+    // Russian system prompt leak patterns
+    /^(?:Пользователь (?:\w+\s+)?(?:задал|задает|задаёт|спрашивает|хочет|просит|написал|интересуется))[\s].*$/gim,
+    /^(?:Согласно (?:системной |моей |внутренней )?(?:инструкции|промпту|правилам|указаниям))[\s:,].*$/gim,
+    /^(?:В (?:моих |системных )?(?:инструкциях|правилах|промпте|указаниях))[\s:,].*$/gim,
+    /^(?:Мне (?:указано|велено|предписано|запрещено|нужно|следует))[\s].*$/gim,
+    /^(?:Необходимо (?:подтвердить|следовать|ответить|соблюдать))[\s].*$/gim,
+    /^(?:Моя (?:задача|роль|функция|цель) (?:—|–|-|:))[\s].*$/gim,
+    /^\d+\.\s+(?:Я (?:НЕ|не|—)|Ответ (?:должен|следует)).*$/gim,
+    // Universal numbered planning: "1. Определение:", "4. Планирование:", etc.
+    /^\d+\.\s*[А-ЯA-Z][а-яa-z]+(?:\s+[а-яa-z]+)?:.*$/gm,
+    // Analysis headers
+    /^(?:Анализ|План (?:ответа|действий)|Рассуждение|Ход мысли|Контекст|Логика ответа)[\s:].*$/gm,
+    // Numbered meta-reasoning
+    /^\d+\.\s*(?:В памяти|Текущее сообщение|Поскольку|Исходя из|Учитывая|Из контекста|Из профиля|Пользователь (?:является|упомин|интересу|ранее)).*$/gm,
+    /.*(?:системн(?:ой|ая|ые) инструкци|системн(?:ый|ого) промпт|установленн(?:ым|ые) правилам).*$/gim,
   ];
   for (const p of linePatterns) {
     cleaned = cleaned.replace(p, '');

@@ -30,11 +30,11 @@ interface Props {
 
 function TreeNodeComponent({ data }: { data: { label: string; score: number; thought?: string; level: number } }) {
   const scoreColor =
-    data.score >= 0.7 ? 'text-green-400' :
-    data.score >= 0.4 ? 'text-yellow-400' :
-    'text-red-400';
+    data.score >= 0.7 ? 'text-foreground/70' :
+    data.score >= 0.4 ? 'text-foreground/50' :
+    'text-foreground/30';
 
-  const levelColors = ['border-blue-500/40', 'border-purple-500/40', 'border-orange-500/40', 'border-green-500/40'];
+  const levelColors = ['border-foreground/15', 'border-foreground/12', 'border-foreground/10', 'border-foreground/8'];
   const levelColor = levelColors[data.level % levelColors.length];
 
   return (
@@ -224,13 +224,13 @@ export function ReasoningTree({ nodes: treeNodes }: Props) {
         <span>Дерево рассуждений</span>
         <span className="text-muted-foreground/50">|</span>
         <span className="flex items-center gap-1">
-          <span className="inline-block h-2 w-2 rounded-full bg-green-400" /> &gt; 0.7
+          <span className="inline-block h-2 w-2 rounded-full bg-foreground/60" /> &gt; 0.7
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block h-2 w-2 rounded-full bg-yellow-400" /> 0.4–0.7
+          <span className="inline-block h-2 w-2 rounded-full bg-foreground/35" /> 0.4–0.7
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block h-2 w-2 rounded-full bg-red-400" /> &lt; 0.4
+          <span className="inline-block h-2 w-2 rounded-full bg-foreground/15" /> &lt; 0.4
         </span>
         <span className="flex items-center gap-1">
           <span className="text-[10px]">★</span> лучшая ветвь

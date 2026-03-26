@@ -44,13 +44,14 @@ interface ChatStore {
   } | null;
   error: string | null;
   lastPersona: StrategySelectedEvent | null;
+  conversationsLoaded: boolean;
 
   // Actions
   loadConversations: () => Promise<void>;
   selectConversation: (id: string) => Promise<void>;
   createConversation: () => Promise<string>;
   deleteConversation: (id: string) => Promise<void>;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, prefill?: { domain: string | null; strategy: string | null }) => Promise<void>;
   sendClarification: (answer: string) => Promise<void>;
   stopStreaming: () => void;
   updateSettings: (partial: Partial<ChatSettings>) => void;
@@ -89,21 +90,86 @@ let abortController: AbortController | null = null;
 let contentBuffer = '';
 let bufferTokenCount = 0;
 let rafId: number | null = null;
+let streamEnded = false;
+
+/**
+ * Smooth streaming: instead of flushing entire buffer per frame (jerky),
+ * emit a proportional slice each frame. Creates typewriter effect
+ * that adapts speed to incoming rate — fast when lots buffered, gentle when little.
+ *
+ * TRIZ "Continuity of useful action": never stop, never jump.
+ */
+const MIN_CHARS_PER_FRAME = 3;
+const MAX_CHARS_PER_FRAME = 80;
 
 function flushContentBuffer() {
   if (!contentBuffer) { rafId = null; return; }
-  const chunk = contentBuffer;
-  const tokens = bufferTokenCount;
-  contentBuffer = '';
-  bufferTokenCount = 0;
-  rafId = null;
+
+  // Adaptive chunk size: emit more when buffer is large (catch up), less when small (smooth)
+  // When stream has ended, drain 4x faster for a smooth but accelerated finish
+  const effectiveMax = streamEnded ? MAX_CHARS_PER_FRAME * 4 : MAX_CHARS_PER_FRAME;
+  const len = contentBuffer.length;
+  const charsThisFrame = Math.min(effectiveMax, Math.max(MIN_CHARS_PER_FRAME, Math.ceil(len * 0.4)));
+
+  const chunk = contentBuffer.slice(0, charsThisFrame);
+  const tokensEstimate = Math.max(1, Math.round(bufferTokenCount * (charsThisFrame / len)));
+  contentBuffer = contentBuffer.slice(charsThisFrame);
+  bufferTokenCount = Math.max(0, bufferTokenCount - tokensEstimate);
+
   useChatStore.setState((s) => ({
     streaming: {
       ...s.streaming,
       currentContent: s.streaming.currentContent + chunk,
-      tokensGenerated: s.streaming.tokensGenerated + tokens,
+      tokensGenerated: s.streaming.tokensGenerated + tokensEstimate,
     },
   }));
+
+  // Continue draining if buffer still has content
+  if (contentBuffer) {
+    rafId = requestAnimationFrame(flushContentBuffer);
+  } else {
+    rafId = null;
+    // When accelerated drain finishes, finalize the assistant message
+    if (streamEnded) {
+      streamEnded = false;
+      useChatStore.setState((s) => {
+        const content = s.streaming.currentContent;
+        const hasClarification = !!s.streaming.clarificationQuestion;
+        const resetStreaming = {
+          isStreaming: false,
+          currentContent: '',
+          thinkingSteps: hasClarification ? s.streaming.thinkingSteps : [],
+          strategyUsed: hasClarification ? s.streaming.strategyUsed : null,
+          isThinking: false,
+          currentPersona: hasClarification ? s.streaming.currentPersona : null,
+          clarificationQuestion: s.streaming.clarificationQuestion,
+          tokensGenerated: 0,
+        };
+        if (!content || !content.trim()) {
+          return { streaming: resetStreaming };
+        }
+        const lastMsg = s.messages[s.messages.length - 1];
+        if (lastMsg?.role === 'assistant' && lastMsg.content === content) {
+          return { streaming: resetStreaming };
+        }
+        const assistantMsg: Message = {
+          id: generateId(),
+          conversation_id: s.activeConversationId || '',
+          role: 'assistant',
+          content,
+          model: s.settings.model,
+          provider: s.settings.provider,
+          reasoning_strategy: s.streaming.strategyUsed || s.settings.strategy,
+          reasoning_trace: JSON.stringify(s.streaming.thinkingSteps),
+          created_at: new Date().toISOString(),
+        };
+        return {
+          messages: [...s.messages, assistantMsg],
+          streaming: resetStreaming,
+        };
+      });
+    }
+  }
 }
 
 async function handleSSEStream(
@@ -114,11 +180,17 @@ async function handleSSEStream(
 ) {
   abortController?.abort();
   abortController = new AbortController();
+  streamEnded = false;
+
+  // 60s timeout — if backend hangs, abort and show error
+  const timeoutId = setTimeout(() => {
+    abortController?.abort();
+    set({ error: 'Request timed out. Try again.' });
+  }, 60000);
 
   try {
     for await (const { event, data } of streamChat(body, abortController.signal)) {
       if (abortController?.signal.aborted) break;
-
       switch (event) {
         case 'conversation':
           if (data.conversation_id) {
@@ -156,9 +228,9 @@ async function handleSSEStream(
                 {
                   step_number: data.step,
                   strategy: s.streaming.strategyUsed || '',
-                  content: data.content || data.label || '',
+                  content: data.label || data.type || 'Рассуждаю',
                   duration_ms: 0,
-                  metadata: { type: data.type, content: data.content, ...(data.branches ? { branches: data.branches } : {}) },
+                  metadata: { type: data.type, content: data.content || '', ...(data.branches ? { branches: data.branches } : {}) },
                 },
               ],
             },
@@ -192,51 +264,76 @@ async function handleSSEStream(
           break;
 
         case 'done': {
-          // Flush any remaining buffered content
-          if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-          const pendingContent = contentBuffer;
-          contentBuffer = '';
-          bufferTokenCount = 0;
+          // If buffer is small, flush instantly; otherwise accelerate drain (4x speed)
+          if (contentBuffer.length < 50) {
+            if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+            const pendingContent = contentBuffer;
+            contentBuffer = '';
+            bufferTokenCount = 0;
+            streamEnded = false;
 
-          set((s) => {
-            const content = s.streaming.currentContent + pendingContent;
-            const resetStreaming = {
-              isStreaming: false,
-              currentContent: '',
-              thinkingSteps: [],
-              strategyUsed: null,
-              isThinking: false,
-              currentPersona: null,
-              clarificationQuestion: null,
-              tokensGenerated: 0,
-            };
-            // Don't add empty assistant messages
-            if (!content || !content.trim()) {
-              return { streaming: resetStreaming };
-            }
-            // Don't add duplicate — check if last message is already this assistant response
-            const lastMsg = s.messages[s.messages.length - 1];
-            if (lastMsg?.role === 'assistant' && lastMsg.content === content) {
-              return { streaming: resetStreaming };
-            }
-            const assistantMsg: Message = {
-              id: generateId(),
-              conversation_id: s.activeConversationId || '',
-              role: 'assistant',
-              content,
-              model: s.settings.model,
-              provider: s.settings.provider,
-              reasoning_strategy: s.streaming.strategyUsed || s.settings.strategy,
-              reasoning_trace: JSON.stringify(s.streaming.thinkingSteps),
-              created_at: new Date().toISOString(),
-            };
-            return {
-              messages: [...s.messages, assistantMsg],
-              streaming: resetStreaming,
-            };
-          });
+            set((s) => {
+              const content = s.streaming.currentContent + pendingContent;
+              // Preserve clarification question — don't reset if user needs to answer
+              const hasClarification = !!s.streaming.clarificationQuestion;
+              const resetStreaming = {
+                isStreaming: false,
+                currentContent: '',
+                thinkingSteps: hasClarification ? s.streaming.thinkingSteps : [],
+                strategyUsed: hasClarification ? s.streaming.strategyUsed : null,
+                isThinking: false,
+                currentPersona: hasClarification ? s.streaming.currentPersona : null,
+                clarificationQuestion: s.streaming.clarificationQuestion,
+                tokensGenerated: 0,
+              };
+              // Don't add empty assistant messages
+              if (!content || !content.trim()) {
+                return { streaming: resetStreaming };
+              }
+              // Don't add duplicate — check if last message is already this assistant response
+              const lastMsg = s.messages[s.messages.length - 1];
+              if (lastMsg?.role === 'assistant' && lastMsg.content === content) {
+                return { streaming: resetStreaming };
+              }
+              // Append Python-generated images as markdown if present
+              const images = data?.images as string[] | undefined;
+              let finalContent = content;
+              if (images && images.length > 0) {
+                const imgMarkdown = images.map((b64: string, i: number) =>
+                  `\n\n![Результат ${i + 1}](data:image/png;base64,${b64})`
+                ).join('');
+                finalContent = content + imgMarkdown;
+              }
 
-          if (onDone) onDone(data);
+              const assistantMsg: Message = {
+                id: generateId(),
+                conversation_id: s.activeConversationId || '',
+                role: 'assistant',
+                content: finalContent,
+                model: s.settings.model,
+                provider: s.settings.provider,
+                reasoning_strategy: s.streaming.strategyUsed || s.settings.strategy,
+                reasoning_trace: JSON.stringify(s.streaming.thinkingSteps),
+                created_at: new Date().toISOString(),
+              };
+              return {
+                messages: [...s.messages, assistantMsg],
+                streaming: resetStreaming,
+              };
+            });
+
+            if (onDone) onDone(data);
+          } else {
+            // Large buffer remaining — set flag to accelerate RAF drain (4x speed)
+            // instead of dumping all at once (which causes a jarring jump)
+            streamEnded = true;
+            if (!rafId) {
+              rafId = requestAnimationFrame(flushContentBuffer);
+            }
+            // NOTE: streaming state (isStreaming, message finalization) will be
+            // handled by the finally block once the for-await loop exits.
+            if (onDone) onDone(data);
+          }
           break;
         }
 
@@ -261,9 +358,14 @@ async function handleSSEStream(
       set({ error: e.message });
     }
   } finally {
-    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-    if (contentBuffer) flushContentBuffer();
-    set((s) => s.streaming.isStreaming ? { streaming: { ...s.streaming, isStreaming: false } } : s);
+    clearTimeout(timeoutId);
+    // If streamEnded is true, the accelerated RAF drain is still running —
+    // let it finish naturally and finalize the message itself.
+    if (!streamEnded) {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      if (contentBuffer) flushContentBuffer();
+      set((s) => s.streaming.isStreaming ? { streaming: { ...s.streaming, isStreaming: false } } : s);
+    }
   }
 }
 
@@ -289,18 +391,30 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   executionPlan: null,
   error: null,
   lastPersona: null,
+  conversationsLoaded: false,
 
   loadConversations: async () => {
     try {
       const convs = await api.listConversations();
-      set({ conversations: convs });
+      set({ conversations: convs, conversationsLoaded: true });
     } catch (e: any) {
-      set({ error: e.message });
+      set({ error: e.message, conversationsLoaded: true });
     }
   },
 
   selectConversation: async (id: string) => {
-    set({ activeConversationId: id, lastPersona: null });
+    set({
+      activeConversationId: id,
+      lastPersona: null,
+      executionPlan: null,
+      calendarDraft: null,
+      error: null,
+      streaming: {
+        isStreaming: false, currentContent: '', thinkingSteps: [],
+        strategyUsed: null, isThinking: false, currentPersona: null,
+        clarificationQuestion: null, tokensGenerated: 0,
+      },
+    });
     try {
       const msgs = await api.getMessages(id);
       set({ messages: msgs });
@@ -316,6 +430,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         conversations: [conv, ...s.conversations],
         activeConversationId: conv.id,
         messages: [],
+        executionPlan: null,
+        calendarDraft: null,
+        error: null,
+        streaming: {
+          isStreaming: false, currentContent: '', thinkingSteps: [],
+          strategyUsed: null, isThinking: false, currentPersona: null,
+          clarificationQuestion: null, tokensGenerated: 0,
+        },
       }));
       return conv.id;
     } catch (e: any) {
@@ -337,8 +459,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
-  sendMessage: async (content: string) => {
+  sendMessage: async (content: string, prefill?: { domain: string | null; strategy: string | null }) => {
     const { settings, activeConversationId } = get();
+
+    // Auto-detect calendar intent from message text
+    // TRIZ #7: Two-level calendar intent scoring — avoid false positives on temporal words
+    const CALENDAR_TEMPORAL = /(?:завтра|сегодня|послезавтра|понедельник|вторник|среда|четверг|пятница|суббота|воскресенье|в \d{1,2}[:.]\d{2}|\d{1,2}:\d{2}|tomorrow|today)\b/i;
+    const CALENDAR_ACTION = /(?:встреча|расписание|schedule|meeting|какие встречи|запланируй|назначь|перенеси|отмени встречу|свободные слоты|когда свободно|создай событие|добавь в календарь|удали встречу|в календар[еёьи]|мой календар|calendar|что запланирован|покажи событи|мои событи|открой календар|покажи календар)\b/i;
+    const hasTemporal = CALENDAR_TEMPORAL.test(content);
+    const hasAction = CALENDAR_ACTION.test(content);
+    // High confidence: action verb present → auto calendar
+    // Low confidence: only temporal words → no auto (user can toggle manually)
+    const autoCalendar = hasAction || (hasTemporal && hasAction);
+
+    // Track behavior
+    import('@/stores/behaviorStore').then(({ useBehaviorStore }) => {
+      useBehaviorStore.getState().trackEvent('message_sent');
+    }).catch(() => {});
 
     // Add optimistic user message
     const userMsg: Message = {
@@ -354,8 +491,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       error: null,
     }));
 
-    // For "none" strategy or very short messages, skip planning
-    if (settings.strategy === 'none' || content.trim().length < 10 || get().calendarMode || get().githubMode) {
+    // For "none"/"auto" strategy or very short messages, skip planning — stream directly
+    const isCalendar = get().calendarMode || autoCalendar;
+    if (settings.strategy === 'none' || settings.strategy === 'auto' || content.trim().length < 10 || isCalendar || get().githubMode) {
       set((s) => ({
         streaming: {
           isStreaming: true, currentContent: '', thinkingSteps: [],
@@ -376,13 +514,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         best_of_n: settings.bestOfN,
         tree_breadth: settings.treeBreadth,
         tree_depth: settings.treeDepth,
-        calendar_mode: get().calendarMode,
+        calendar_mode: isCalendar,
         github_mode: get().githubMode,
+        ...(prefill?.domain && { pre_domain: prefill.domain }),
+        ...(prefill?.strategy && { pre_strategy: prefill.strategy }),
       };
 
       await handleSSEStream(body, get, set, (data) => {
         if (data?.calendar_draft) set({ calendarDraft: data.calendar_draft });
-        else if (data?.calendar_result || get().calendarMode) {
+        else if (data?.calendar_result || isCalendar) {
           import('@/stores/calendarStore').then(({ useCalendarStore }) => {
             useCalendarStore.getState().loadWeekEvents();
           }).catch(() => {});
@@ -407,17 +547,54 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           best_of_n: settings.bestOfN,
           tree_breadth: settings.treeBreadth,
           tree_depth: settings.treeDepth,
-          calendar_mode: get().calendarMode,
+          calendar_mode: isCalendar,
           github_mode: get().githubMode,
+          ...(prefill?.domain && { pre_domain: prefill.domain }),
+          ...(prefill?.strategy && { pre_strategy: prefill.strategy }),
         }),
       });
 
       if (resp.ok) {
         const plan = await resp.json();
-        set({
-          executionPlan: { ...plan, pendingMessage: content },
-        });
-        return;  // Wait for user to accept
+        // Auto-accept simple plans (1 call) — don't burden user with confirmation
+        if (plan.estimated_calls <= 1 || plan.strategy === 'none') {
+          // Execute directly with the strategy from the plan
+          set((s) => ({
+            streaming: {
+              isStreaming: true, currentContent: '', thinkingSteps: [],
+              strategyUsed: null, isThinking: false, currentPersona: null,
+              clarificationQuestion: null, tokensGenerated: 0,
+            },
+          }));
+
+          const autoBody = {
+            conversation_id: activeConversationId,
+            message: content,
+            model: settings.model,
+            provider: settings.provider,
+            reasoning_strategy: plan.strategy || 'none',
+            temperature: settings.temperature,
+            max_tokens: settings.maxTokens,
+            budget_rounds: settings.budgetRounds,
+            best_of_n: settings.bestOfN,
+            tree_breadth: settings.treeBreadth,
+            tree_depth: settings.treeDepth,
+            calendar_mode: isCalendar,
+            github_mode: get().githubMode,
+            ...(prefill?.domain && { pre_domain: prefill.domain }),
+            ...(prefill?.strategy && { pre_strategy: prefill.strategy }),
+          };
+
+          await handleSSEStream(autoBody, get, set, (data) => {
+            if (data?.calendar_draft) set({ calendarDraft: data.calendar_draft });
+          });
+          return;
+        } else {
+          set({
+            executionPlan: { ...plan, pendingMessage: content },
+          });
+          return;  // Wait for user to accept
+        }
       }
     } catch {
       // Plan request failed — execute directly as fallback
@@ -437,20 +614,22 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       message: content,
       model: settings.model,
       provider: settings.provider,
-      reasoning_strategy: settings.strategy,
+      reasoning_strategy: (settings.strategy as string) === 'auto' ? 'none' : settings.strategy,
       temperature: settings.temperature,
       max_tokens: settings.maxTokens,
       budget_rounds: settings.budgetRounds,
       best_of_n: settings.bestOfN,
       tree_breadth: settings.treeBreadth,
       tree_depth: settings.treeDepth,
-      calendar_mode: get().calendarMode,
+      calendar_mode: isCalendar,
       github_mode: get().githubMode,
+      ...(prefill?.domain && { pre_domain: prefill.domain }),
+      ...(prefill?.strategy && { pre_strategy: prefill.strategy }),
     };
 
     await handleSSEStream(body, get, set, (data) => {
       if (data?.calendar_draft) set({ calendarDraft: data.calendar_draft });
-      else if (data?.calendar_result || get().calendarMode) {
+      else if (data?.calendar_result || isCalendar) {
         import('@/stores/calendarStore').then(({ useCalendarStore }) => {
           useCalendarStore.getState().loadWeekEvents();
         }).catch(() => {});
@@ -494,6 +673,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
     contentBuffer = '';
     bufferTokenCount = 0;
+    streamEnded = false;
     set((s) => ({
       streaming: { ...s.streaming, isStreaming: false },
     }));

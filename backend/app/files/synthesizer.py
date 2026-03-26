@@ -1,10 +1,13 @@
-"""Stage 4 — Synthesize: build the final file analysis prompt and format result."""
+"""Stage 4 — Synthesize: build the final file analysis prompt using Cognitive Map."""
 
 from __future__ import annotations
 
-from app.files.chunker import should_chunk, chunk_text, search_chunks
+from app.files.cognitive_map import build_cognitive_map, build_focused_context, CognitiveMap
 from app.files.router import classify_task, get_strategy_label
 from app.reasoning.engine import ReasoningStrategy
+
+# Cache cognitive maps by file_id to avoid rebuilding
+_map_cache: dict[str, CognitiveMap] = {}
 
 
 def build_file_context(
@@ -12,43 +15,51 @@ def build_file_context(
     user_query: str,
     file_count: int = 1,
 ) -> dict:
-    """Build the context for LLM analysis of a file.
+    """Build the context for LLM analysis using Document Cognitive Map.
+
+    TRIZ #13: instead of cramming the whole document into the prompt,
+    navigate to the relevant sections like a human expert would.
 
     Returns:
         {
             "strategy": ReasoningStrategy,
             "strategy_label": str,
             "system_prompt": str,
-            "context_mode": "full" | "chunked",
-            "file_context": str,         # text injected into messages
-            "chunk_count": int,           # 0 if full context
+            "context_mode": "full" | "focused",
+            "file_context": str,
+            "chunk_count": int,
             "char_count": int,
+            "sections_used": list[int],
+            "cognitive_map": CognitiveMap,
         }
     """
     text = parsed_file["text"]
     filename = parsed_file["filename"]
     file_type = parsed_file["file_type"]
     char_count = parsed_file["char_count"]
+    file_id = parsed_file.get("id", filename)
 
     strategy = classify_task(user_query, file_count=file_count)
 
-    if should_chunk(char_count):
-        # Large file: chunk and retrieve relevant parts
-        chunks = chunk_text(text)
-        relevant = search_chunks(chunks, user_query, top_k=8)
-        file_context = "\n\n---\n\n".join(
-            f"[Фрагмент {c['index'] + 1}, символы {c['start']}-{c['end']}]\n{c['text']}"
-            for c in relevant
-        )
-        context_mode = "chunked"
-        chunk_count = len(chunks)
+    # Build or retrieve cognitive map
+    if file_id in _map_cache:
+        cmap = _map_cache[file_id]
     else:
-        # Small file: full context
-        file_context = text
-        context_mode = "full"
-        chunk_count = 0
+        cmap = build_cognitive_map(text, filename, file_type)
+        _map_cache[file_id] = cmap
+        # Limit cache size
+        if len(_map_cache) > 30:
+            oldest = next(iter(_map_cache))
+            del _map_cache[oldest]
 
-    # Build system prompt for file analysis
+    # Build focused context using cognitive map
+    focused = build_focused_context(cmap, user_query, max_chars=8000)
+
+    context_mode = focused["level"]
+    file_context = focused["context"]
+    sections_used = focused["sections_used"]
+
+    # Build system prompt
     strategy_label = get_strategy_label(strategy)
     type_label = {
         "pdf": "PDF-документ",
@@ -60,20 +71,23 @@ def build_file_context(
         "text": "текстовый файл",
     }.get(file_type, "файл")
 
+    n_sections = len(cmap.sections)
+    n_used = len(sections_used)
+
     system_prompt = f"""Ты — DeepThink, ИИ-ассистент с продвинутым reasoning engine.
-Тебе предоставлен {type_label} «{filename}» ({char_count:,} символов).
-{"Показаны наиболее релевантные фрагменты (" + str(len(relevant)) + " из " + str(chunk_count) + " чанков)." if context_mode == "chunked" else "Весь текст файла включён в контекст."}
+Тебе предоставлен {type_label} «{filename}» ({char_count:,} символов, {n_sections} секций).
+{"Весь текст включён в контекст." if context_mode == "full" else f"Показаны {n_used} наиболее релевантных секций из {n_sections}. Структура всего документа видна в скелете."}
 
 Стратегия анализа: {strategy_label}.
 
 ПРАВИЛА:
 — Отвечай на языке пользователя
 — Рассуждения внутри <thinking></thinking>, финальный ответ — после тегов
-— Ссылайся на конкретные места в документе (номера страниц, секции, строки кода)
-— Будь точен и конкретен, не домысливай то, чего нет в тексте
-— Если информации недостаточно для ответа — скажи прямо
+— Ссылайся на конкретные секции по номеру: [0], [1], ...
+— Будь точен и конкретен, не домысливай
+— Если информации в показанных секциях недостаточно — скажи какая секция может содержать ответ (по скелету)
 
-СОДЕРЖИМОЕ ФАЙЛА «{filename}»:
+СОДЕРЖИМОЕ:
 {file_context}"""
 
     return {
@@ -82,6 +96,8 @@ def build_file_context(
         "system_prompt": system_prompt,
         "context_mode": context_mode,
         "file_context": file_context,
-        "chunk_count": chunk_count,
+        "chunk_count": n_sections,
         "char_count": char_count,
+        "sections_used": sections_used,
+        "cognitive_map": cmap,
     }

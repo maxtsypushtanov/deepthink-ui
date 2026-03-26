@@ -57,7 +57,8 @@ async def create_event(
     )
     await db.commit()
     return {"id": eid, "title": title, "description": description,
-            "start_time": start_time, "end_time": end_time, "color": color}
+            "start_time": start_time, "end_time": end_time, "color": color,
+            "created_at": now}
 
 
 async def list_events(start: str, end: str) -> list[dict]:

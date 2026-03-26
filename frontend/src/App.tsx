@@ -1,21 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, lazy, Suspense } from 'react';
 import { Sidebar } from '@/components/layout/Sidebar';
+import { InspectPanel, type InspectMode } from '@/components/layout/InspectPanel';
 import { ChatArea } from '@/components/chat/ChatArea';
-import { CalendarView } from '@/components/Calendar/CalendarView';
-import { CommandPalette } from '@/components/CommandPalette';
-import { SettingsDialog } from '@/components/settings/SettingsDialog';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ToastContainer } from '@/components/Toast';
 import { useThemeStore } from '@/stores/themeStore';
 import { useChatStore } from '@/stores/chatStore';
-import { cn } from '@/lib/utils';
-import { MessageSquare, Calendar } from 'lucide-react';
 
-type Tab = 'chat' | 'calendar';
+const CommandPalette = lazy(() => import('@/components/CommandPalette').then((m) => ({ default: m.CommandPalette })));
+const SettingsDialog = lazy(() => import('@/components/settings/SettingsDialog').then((m) => ({ default: m.SettingsDialog })));
 
 export default function App() {
   const theme = useThemeStore((s) => s.mode);
   const loadConversations = useChatStore((s) => s.loadConversations);
   const createConversation = useChatStore((s) => s.createConversation);
-  const [activeTab, setActiveTab] = useState<Tab>('chat');
+
+  const [inspectOpen, setInspectOpen] = useState(false);
+  const [inspectMode, setInspectMode] = useState<InspectMode>('reasoning');
+  const [inspectContent, setInspectContent] = useState<React.ReactNode>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
@@ -26,109 +28,77 @@ export default function App() {
     loadConversations();
   }, [loadConversations]);
 
+  const closeInspect = useCallback(() => { setInspectOpen(false); setInspectContent(null); }, []);
+
+  const openInspect = useCallback((mode: InspectMode, content?: React.ReactNode) => {
+    setInspectMode(mode);
+    setInspectContent(content || null);
+    setInspectOpen(true);
+  }, []);
+
+  const toggleInspect = useCallback((mode: InspectMode) => {
+    if (inspectOpen && inspectMode === mode) {
+      closeInspect();
+    } else {
+      openInspect(mode);
+    }
+  }, [inspectOpen, inspectMode, closeInspect, openInspect]);
+
+  // Global keyboard shortcuts (Cmd+\ handled by Sidebar itself)
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
-        e.preventDefault();
-        createConversation();
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === '/') {
-        e.preventDefault();
-        document.querySelector<HTMLTextAreaElement>('textarea')?.focus();
-      }
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+
+      if (e.key === 'n') { e.preventDefault(); createConversation(); }
+      if (e.key === '/') { e.preventDefault(); document.querySelector<HTMLTextAreaElement>('textarea')?.focus(); }
+      if (e.key === 'i' && !e.shiftKey) { e.preventDefault(); toggleInspect('metadata'); }
+      if (e.key === ',') { e.preventDefault(); setSettingsOpen(true); }
+      if (e.key === 'd' && e.shiftKey) { e.preventDefault(); useThemeStore.getState().toggle(); }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [createConversation]);
+  }, [createConversation, toggleInspect]);
 
-  // Listen for custom events from CommandPalette
   useEffect(() => {
-    const handleSwitchTab = (e: Event) => {
-      const tab = (e as CustomEvent).detail as Tab;
-      setActiveTab(tab);
+    const handleOpenSettings = () => setSettingsOpen(true);
+    const handleOpenInspect = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (typeof detail === 'string') {
+        openInspect(detail as InspectMode);
+      } else if (detail && typeof detail === 'object') {
+        openInspect(detail.mode as InspectMode, detail.content);
+      }
     };
-    const handleOpenSettings = () => {
-      setSettingsOpen(true);
-    };
-    window.addEventListener('deepthink:switch-tab', handleSwitchTab);
     window.addEventListener('deepthink:open-settings', handleOpenSettings);
+    window.addEventListener('deepthink:open-inspect', handleOpenInspect);
     return () => {
-      window.removeEventListener('deepthink:switch-tab', handleSwitchTab);
       window.removeEventListener('deepthink:open-settings', handleOpenSettings);
+      window.removeEventListener('deepthink:open-inspect', handleOpenInspect);
     };
-  }, []);
+  }, [openInspect]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background">
+    <div className="flex h-screen bg-background text-foreground overflow-hidden">
+      {/* Chat takes full width — sidebar is ghost overlay */}
+      <main className="flex-1 flex flex-col min-w-0">
+        <ErrorBoundary>
+          <ChatArea />
+        </ErrorBoundary>
+      </main>
+
+      <InspectPanel open={inspectOpen} mode={inspectMode} onClose={closeInspect}>
+        {inspectContent}
+      </InspectPanel>
+
+      {/* Ghost sidebar — renders as fixed overlay, takes 0px in layout */}
       <Sidebar />
-      <CommandPalette />
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Tab bar */}
-        <div role="tablist" className="flex items-center gap-1 border-b border-border bg-card/50 px-3">
-          <TabButton
-            active={activeTab === 'chat'}
-            onClick={() => setActiveTab('chat')}
-            icon={<MessageSquare className="h-3.5 w-3.5" />}
-            label="Чат"
-          />
-          <TabButton
-            active={activeTab === 'calendar'}
-            onClick={() => setActiveTab('calendar')}
-            icon={<Calendar className="h-3.5 w-3.5" />}
-            label="Календарь"
-          />
-        </div>
-
-        {/* Tab content */}
-        <div className="flex-1 overflow-hidden">
-          {activeTab === 'chat' && <ChatArea />}
-          {activeTab === 'calendar' && <CalendarView />}
-        </div>
-      </div>
+      <Suspense fallback={null}>
+        <CommandPalette />
+        {settingsOpen && <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />}
+      </Suspense>
+      <ToastContainer />
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  icon,
-  label,
-  badge,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-  badge?: boolean;
-}) {
-  return (
-    <button
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        'relative flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors',
-        'focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-0 rounded-t-md',
-        active
-          ? 'text-foreground'
-          : 'text-muted-foreground hover:text-foreground',
-      )}
-    >
-      {icon}
-      <span className="whitespace-nowrap">{label}</span>
-      {badge && (
-        <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-yellow-400 opacity-75" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-yellow-400" />
-        </span>
-      )}
-      {/* Active indicator line */}
-      {active && (
-        <span className="absolute inset-x-0 -bottom-px h-0.5 bg-foreground rounded-full" />
-      )}
-    </button>
   );
 }

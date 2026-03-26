@@ -1,359 +1,287 @@
-# DeepThink UI
+# DeepThink
 
-Personal LLM Web UI with an advanced reasoning engine, multi-agent development pipeline, and AI-powered calendar.
+Когнитивный усилитель на базе LLM. Дешёвая модель + умный движок рассуждений = результат уровня топовой модели.
 
-![DeepThink UI](https://img.shields.io/badge/DeepThink-UI-blue?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.11+-green?style=flat-square)
 ![React](https://img.shields.io/badge/React-19-blue?style=flat-square)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=flat-square)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178c6?style=flat-square)
-![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)
 
-## Idea
+## Идея
 
-A beautiful, minimalist chat interface where **any model gains reasoning superpowers** through a built-in orchestration layer. No need for expensive frontier models — even a cheap model thinks deeply and structurally through middleware reasoning strategies.
+Любой пользователь может скачать приложение, вставить API-ключ, выбрать простую модель — и получить мощный инструмент для мышления и решения проблем.
 
-Three core modules:
-- **Chat** with 5 reasoning strategies that wrap any LLM
-- **Pipeline** — multi-agent development loop (Architect > Developer > Tester) with GitHub integration and code sandbox
-- **Calendar** — AI-driven event management directly from chat
+DeepThink — не чат-обёртка. Это мета-когнитивная платформа с 9 стратегиями рассуждений, когнитивной памятью, предиктивным мышлением и адаптацией под пользователя.
 
-## Reasoning Engine — 5 Strategies
+**Миссия**: помогать человеку мыслить глубже, яснее и точнее.
 
-### CoT Injection (Chain-of-Thought)
+## Быстрый старт
 
-Forces step-by-step thinking via system prompt injection. The model produces reasoning inside `<thinking>` tags following a 5-step framework, then delivers a concise answer. Single-pass, low temperature (0.3).
-
-### Budget Forcing
-
-Iterative deepening inspired by the s1 approach. When a model tries to stop, the engine appends a continuation prompt ("you haven't finished yet...") and forces additional rounds of analysis. Default 3 rounds with gradually increasing temperature (0.3 + round * 0.1). Only the final round streams to the user; intermediate rounds serve as self-correction passes.
-
-### Best-of-N
-
-Generates N parallel candidate responses (default 3) with varied temperatures, then asks the model to vote on the best answer at low temperature (0.1). The winner is streamed to the user. Metadata includes candidate indices and vote reasoning.
-
-### Tree of Thoughts
-
-Multi-path exploration with configurable breadth (default 3) and depth (default 2). At each level, branches are scored 0.0-1.0 by the model. The engine follows parent-child links to find the highest-scoring path through the tree, then synthesizes a final answer. The full tree structure with node IDs, scores, and parent links is preserved in metadata.
-
-### Auto
-
-Runs three classification tasks in parallel:
-1. **Ambiguity detection** — returns a clarification question if the query is unclear
-2. **Complexity rating** (1-5) — maps to the appropriate strategy
-3. **Domain detection** — classifies into one of 10 domains (software_engineering, mathematics, medicine, law, finance, science, creative_writing, business, philosophy, general)
-
-Mapping: complexity 1-2 = passthrough/CoT, 3 = CoT/Budget Forcing, 4-5 = Tree of Thoughts/Best-of-N.
-
-## Multi-Agent Pipeline
-
-An automated development loop that takes a task description and a GitHub repository, then iterates through specialized agents:
-
-| Agent | Role |
-|---|---|
-| **Architect** | Analyzes the repo via MCP tools, produces a structured implementation plan with file changes |
-| **Developer** | Reads relevant files, generates code changes following the architect's plan |
-| **Tester** | Spins up an E2B sandbox, writes test files, runs pytest, reports issues |
-| **Orchestrator** | Reviews iteration results, decides: next iteration, done, or create PR |
-
-Features:
-- **Task complexity classification** — simple (1 iteration), medium (max 2), complex (max 5)
-- **GitHub integration** via MCP — repository search, file reading, PR creation
-- **E2B sandbox** — isolated code execution with pip dependency installation
-- **Real-time streaming** via WebSocket — agent events, thinking steps, tool calls
-- **Grounded Tree of Thoughts (GToT)** — parallel MCP tool calls organized as a scored tree for exploration planning
-- **Automatic state reset** between iterations to prevent stale data bleed
-
-## Calendar
-
-AI-powered event management integrated into the chat interface:
-- Toggle calendar mode in chat input to create/update/delete events via natural language
-- The LLM response is parsed for calendar actions (JSON extraction with regex fallback)
-- Weekly view with event chips sized by duration
-- Free slot finder — specify a date and duration, get available windows
-- Full CRUD API with ISO 8601 datetime validation and `end > start` enforcement
-
-## Multi-Provider Support
-
-| Provider | Base URL | Notes |
-|---|---|---|
-| **OpenRouter** | `openrouter.ai/api/v1` | 200+ models via single API key |
-| **DeepSeek** | `api.deepseek.com/v1` | Including R1 with native reasoning |
-| **Cloud.ru** | `api.cloud.ru/v1` | Russian foundation model servers |
-| **Custom** | Any OpenAI-compatible URL | SSRF-protected: internal/private IPs blocked |
-
-Models are fetched dynamically from provider APIs with a fallback to a built-in known models list.
-
-## Design
-
-- Dark-first minimalist UI inspired by Linear, iA Writer, and Vercel
-- **Geist** font family (Sans + Mono)
-- Collapsible thinking panel with color-coded step badges
-- Interactive reasoning tree visualization (React Flow)
-- Drag-and-drop conversation organization with folders
-- Light theme available via settings toggle
-
-## Tech Stack
-
-| Layer | Technology | Version |
-|---|---|---|
-| Frontend | React, TypeScript, Vite | 19.0, 5.7, 6.0 |
-| Styling | TailwindCSS, shadcn/ui, Radix UI | 3.4 |
-| State | Zustand | 5.0 |
-| Visualization | React Flow (@xyflow) | 12.4 |
-| Markdown | react-markdown + remark-gfm | 9.0 |
-| DnD | @dnd-kit | - |
-| Icons | Lucide React | 0.469 |
-| Backend | FastAPI, Uvicorn | 0.115, 0.34 |
-| Database | SQLite via aiosqlite | 0.20 |
-| HTTP | httpx (async) | 0.28 |
-| Streaming | sse-starlette (SSE) | 2.2 |
-| Validation | Pydantic + pydantic-settings | 2.10 |
-| Tools | MCP (Model Context Protocol) | 1.0+ |
-| Sandbox | E2B (code execution) | 1.0+ |
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.11+
-- Node.js 18+
-- At least one LLM provider API key
-
-### Backend
+### 1. Установка
 
 ```bash
+git clone <repo>
+cd deepthink-ui
+
+# Бэкенд
 cd backend
 python3 -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env      # Add your API keys
-uvicorn app.main:app --reload --port 8000
+
+# Фронтенд
+cd ../frontend
+npm install
 ```
 
-### Frontend
+### 2. Запуск
 
 ```bash
-cd frontend
-npm install
-npm run dev
+# Одной командой:
+bash start.sh
+
+# Или через Docker:
+docker-compose up
 ```
 
-Open [http://localhost:5173](http://localhost:5173). The Vite dev server proxies `/api` requests to `localhost:8000`.
+### 3. Настройка
 
-## Configuration
+1. Откроется onboarding-экран с инструкцией
+2. Получите бесплатный API-ключ на [openrouter.ai/keys](https://openrouter.ai/keys)
+3. Вставьте ключ в Настройках (Cmd+,)
+4. Задайте вопрос — DeepThink сам выберет стратегию мышления
 
-### Environment Variables
+## Reasoning Engine — 9 стратегий
 
-Copy `backend/.env.example` to `backend/.env` and fill in:
+Движок автоматически выбирает стратегию по сложности запроса. Для простых — мгновенный ответ (0 лишних вызовов). Для сложных — глубокий многопроходный анализ.
 
-```env
-# Provider API keys (at least one required)
-OPENROUTER_API_KEY=sk-or-...
-DEEPSEEK_API_KEY=sk-...
-CLOUDRU_API_KEY=...
-CUSTOM_API_KEY=...
-CUSTOM_BASE_URL=http://localhost:11434/v1
+### None (Прямой ответ)
+Для простых фактов. Модель отвечает напрямую без дополнительных рассуждений.
 
-# Database
-DATABASE_URL=sqlite+aiosqlite:///./deepthink.db
+### Chain of Thought (Цепочка мыслей)
+Пошаговое рассуждение внутри `<thinking>` тегов. Модель анализирует, проверяет логику, затем выдаёт краткий ответ. Один проход, temperature 0.3.
 
-# Pipeline (optional — only needed for multi-agent mode)
-GITHUB_PERSONAL_ACCESS_TOKEN=ghp_...
-E2B_API_KEY=e2b_...
+### Budget Forcing (Углублённый анализ)
+Итеративное углубление: 1-10 раундов. Каждый раунд модель продолжает анализ, проверяет предыдущие выводы. Temperature растёт с каждым проходом. Только финальный раунд стримится пользователю.
 
-# Agent models (optional — override per-agent model selection)
-ARCHITECT_MODEL=openai/gpt-4o
-DEVELOPER_MODEL=anthropic/claude-sonnet-4-20250514
-TESTER_MODEL=anthropic/claude-sonnet-4-20250514
-ORCHESTRATOR_MODEL=openai/gpt-4o
+### Best of N (Сравнение вариантов)
+N параллельных ответов с разной temperature → модель-судья выбирает лучший. Видно когда варианты сходятся (высокая уверенность) или расходятся (тема неоднозначна).
 
-# Pipeline limits
-MAX_ITERATIONS=5
-STOP_ON_CLEAN_ITERATIONS=2
+### Tree of Thoughts (Дерево мыслей)
+Ветвление рассуждений с оценкой 0.0-1.0 на каждом уровне. Движок находит лучший путь через дерево и синтезирует ответ. Визуализируется как интерактивное дерево с score-бейджами.
 
-# Server
-HOST=0.0.0.0
-PORT=8000
-CORS_ORIGINS=["http://localhost:5173"]
-```
+### Persona Council (Совет экспертов)
+4 эксперта с разными ролями (Скептик-учёный, Практик, Адвокат дьявола, Визионер) отвечают параллельно. Модератор синтезирует мнения в сбалансированный ответ.
 
-### In-App Settings
+### Rubber Duck (Объясни и исправь)
+Черновик → объяснение «как пятикласснику» → поиск ошибок через упрощение → исправленный финал.
 
-1. Open the app and click the settings icon
-2. Add API keys for your providers
-3. Select a model and reasoning strategy
-4. Start chatting
+### Socratic (Метод Сократа)
+3 ключевых подвопроса → ответ на каждый → синтез в цельный ответ. Раскрывает тему с разных сторон.
 
-## API Reference
+### Auto (Автовыбор)
+Heuristic-first классификация: короткие запросы → None мгновенно (0 LLM-вызовов), средние → CoT, сложные → LLM выбирает из всех 9 стратегий. Параллельно определяет домен и проверяет неоднозначность.
 
-### Chat
+## Предиктивное рассуждение
 
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/chat` | Stream a chat response with reasoning (SSE) |
+Пока пользователь печатает, WebSocket отправляет partial query на сервер. Бэкенд предвычисляет domain + strategy. При отправке сообщения — классификация уже готова, ответ начинается мгновенно.
 
-SSE event types: `strategy_selected`, `thinking_start`, `thinking_step`, `content_delta`, `thinking_end`, `done`, `error`, `clarification_needed`, `conversation`.
+## Когнитивная память
 
-### Conversations
+Агент помнит пользователя между разговорами. Автоматически извлекает:
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/conversations` | List all conversations |
-| POST | `/api/conversations` | Create a conversation |
-| GET | `/api/conversations/{id}` | Get conversation details |
-| GET | `/api/conversations/{id}/messages` | Get message history |
-| PATCH | `/api/conversations/{id}` | Update title |
-| DELETE | `/api/conversations/{id}` | Delete conversation |
-| PUT | `/api/conversations/{id}/folder` | Move to folder |
+| Категория | Примеры |
+|-----------|---------|
+| **expertise** | python: advanced, devops: intermediate |
+| **style** | verbosity: terse, language: Russian |
+| **topics** | machine learning, ТРИЗ |
+| **context** | current_project: deepthink-ui |
 
-### Folders
+Память хранится в SQLite (таблица `user_memory`), confidence усиливается при подтверждении (EWMA), затухает без использования, записи < 0.05 удаляются. Профиль инъектируется в промпт (~200 токенов).
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/folders` | List folders |
-| POST | `/api/folders` | Create folder |
-| PUT | `/api/folders/{id}` | Rename folder |
-| DELETE | `/api/folders/{id}` | Delete folder (reparents children) |
-| PUT | `/api/folders/{id}/move` | Move folder (cycle-safe) |
+API: `GET /api/memory`, `GET /api/memory/snapshot`, `DELETE /api/memory`
+
+## Document Cognitive Map
+
+Интеллектуальная обработка документов — не весь текст в контекст, а навигация по документу как эксперт.
+
+### 3 уровня представления
+
+| Уровень | Содержание | Когда строится | Токены |
+|---------|-----------|----------------|--------|
+| **Level 0** — Skeleton | Структура, заголовки, метаданные | При загрузке (0 LLM) | ~50 |
+| **Level 1** — Section Map | Саммари каждой секции | При первом вопросе | ~300 |
+| **Level 2** — Full Text | Только релевантные секции | При каждом вопросе | ~2000 |
+
+### Поддерживаемые форматы (35 типов)
+
+| Тип | Cognitive Map | Особенности |
+|-----|--------------|-------------|
+| PDF | По страницам | pypdf, текстовый слой |
+| DOCX | По heading-стилям | python-docx, таблицы внутри документа |
+| PPTX | По слайдам | python-pptx |
+| XLSX/XLS/CSV | Table Intelligence | Статистический профиль + pandas executor |
+| Код (.py, .js, .ts, .go, .rs + 20 других) | По функциям/классам | AST-подобное разбиение |
+| Markdown/TXT | По заголовкам | Markdown heading detection |
+| Изображения (.png, .jpg, .gif, .webp) | — | Base64 для vision-моделей |
+
+### Table Intelligence
+
+Для таблиц — статистический профиль вместо сырых строк:
+
+- **Схема**: имена столбцов + автоопределение типа (numeric/text/date/boolean)
+- **Статистика**: min/max/mean/median для числовых, top values для текстовых, range для дат
+- **Выборка**: первые 5 + последние 3 строки
+- **Аномалии**: выбросы, пустые столбцы, дубликаты
+- **Pandas Executor**: LLM пишет код → код выполняется на реальных данных → точный результат
+
+Сжатие: таблица 500 строк (24K символов) → профиль 928 символов (×25).
+
+## Встроенный календарь
+
+AI-ассистент с полным доступом к встроенному календарю:
+
+- Автодетекция intent из текста ("завтра встреча", "что в календаре")
+- CRUD событий через natural language
+- Draft-карточки: AI предлагает → пользователь подтверждает
+- Поиск конфликтов и свободных слотов
+- Умное определение длительности по типу встречи
+- Ambient hint — напоминание о ближайшем событии
+- Ежедневный брифинг
+
+## Визуализация рассуждений
+
+### ThinkingOrb
+Живой SVG-глиф рядом с ответом. У каждой стратегии — уникальная анимация:
+- CoT: дуга заполняется по кругу
+- Best-of-N: точки орбитируют и сливаются
+- Tree: ветви растут из центра
+- Persona Council: 4 точки пульсируют по очереди
+- Budget Forcing: концентрические кольца дышат
+
+### Inspect Panel
+Правая панель (по клику на confidence bar) с детальными шагами рассуждений. Для Tree of Thoughts — визуальное мини-дерево с score-бейджами.
+
+### Confidence Bar
+Цветная полоска под ответом. Для каждой стратегии — своя метрика уверенности:
+- Best-of-N: совпадение вариантов
+- Tree of Thoughts: score лучшего пути
+- CoT: плотность hedging-фраз в рассуждениях
+- Rubber Duck: найдены ли ошибки при проверке
+
+## Адаптивное поведение
+
+EWMA-based preferences — UI плавно адаптируется под пользователя:
+- Часто раскрываете reasoning → ThinkingPanel автоматически развёрнут
+- Часто меняете стратегию → селектор появляется в composer
+- Affinity затухает если поведение меняется (decay 0.98)
+
+## Провайдеры
+
+| Провайдер | Описание |
+|-----------|----------|
+| **OpenRouter** | 200+ моделей через один API-ключ (включая бесплатные) |
+| **DeepSeek** | Прямой API, включая R1 с нативным reasoning |
+| **Cloud.ru** | Российские foundation models |
+| **Custom** | Любой OpenAI-совместимый API endpoint |
+
+## Интерфейс
+
+- Dark/Light тема (Cmd+Shift+D) + accent hue персонализация (0-360°)
+- Ghost Sidebar — появляется при hover на левый край (Cmd+\\)
+- Command Palette (Cmd+K) с NL-парсингом ("объясни просто" → rubber_duck)
+- Поиск в чате (Cmd+Shift+F) с подсветкой совпадений
+- Drag & Drop файлов + скрепка для загрузки
+- Форки диалогов (split-view сравнение)
+- Цитирование выделенного текста
+- Авторастягивающийся composer
+- Плавный адаптивный стриминг (typewriter + ускоренный финиш)
+
+## Клавиатурные сочетания
+
+| Шорткат | Действие |
+|---------|----------|
+| Cmd+N | Новый чат |
+| Cmd+K | Command Palette |
+| Cmd+, | Настройки |
+| Cmd+I | Inspect Panel |
+| Cmd+\\ | Sidebar |
+| Cmd+Shift+D | Переключить тему |
+| Cmd+Shift+F | Поиск в чате |
+| Enter | Отправить |
+| Shift+Enter | Перенос строки |
+| Escape | Закрыть панели |
+
+## API
+
+### Chat & Reasoning
+| Метод | Endpoint | Описание |
+|-------|----------|----------|
+| POST | `/api/chat` | Стриминг ответа с reasoning (SSE) |
+| POST | `/api/chat/plan` | Execution plan для сложных запросов |
+| POST | `/api/chat/fork` | Форк диалога |
+| WS | `/api/chat/ws/{session_id}` | Предиктивное рассуждение |
+
+### Files
+| Метод | Endpoint | Описание |
+|-------|----------|----------|
+| POST | `/api/files/upload` | Загрузка + Cognitive Map (Level 0) |
+| POST | `/api/files/analyze` | Анализ с reasoning + pandas executor |
+
+### Memory
+| Метод | Endpoint | Описание |
+|-------|----------|----------|
+| GET | `/api/memory` | Когнитивный профиль пользователя |
+| GET | `/api/memory/snapshot` | Компактный текст для промпта |
+| DELETE | `/api/memory` | Полный сброс (GDPR) |
 
 ### Calendar
+| Метод | Endpoint | Описание |
+|-------|----------|----------|
+| GET | `/api/calendar/events` | Список событий |
+| POST | `/api/calendar/events` | Создать событие |
+| PATCH | `/api/calendar/events/{id}` | Обновить |
+| DELETE | `/api/calendar/events/{id}` | Удалить |
+| POST | `/api/calendar/free-slots` | Свободные слоты |
+| POST | `/api/calendar/confirm` | Подтвердить AI-действие |
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/calendar/events?start=...&end=...` | List events in range |
-| POST | `/api/calendar/events` | Create event |
-| GET | `/api/calendar/events/{id}` | Get event |
-| PATCH | `/api/calendar/events/{id}` | Update event |
-| DELETE | `/api/calendar/events/{id}` | Delete event |
-| POST | `/api/calendar/free-slots` | Find free slots (date + duration) |
+### Conversations & Folders
+| Метод | Endpoint | Описание |
+|-------|----------|----------|
+| GET | `/api/conversations` | Список диалогов |
+| GET | `/api/conversations/smart-folders` | Авто-группировка по домену |
+| POST/PATCH/DELETE | `/api/conversations/{id}` | CRUD |
+| GET/POST/PUT/DELETE | `/api/folders/{id}` | Управление папками |
 
-### Pipeline
+### Settings
+| Метод | Endpoint | Описание |
+|-------|----------|----------|
+| GET/POST | `/api/settings/providers` | API-ключи провайдеров |
+| GET | `/api/models/{provider}` | Список моделей |
 
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/pipeline/run` | Start multi-agent pipeline |
-| GET | `/api/pipeline/{id}/status` | Get task status and context |
-| DELETE | `/api/pipeline/{id}` | Cancel pipeline task |
-| WS | `/api/pipeline/{id}/stream` | Real-time event stream (WebSocket) |
+## Стек
 
-### Settings & Models
+| Слой | Технологии |
+|------|-----------|
+| Frontend | React 19, TypeScript 5.7, Vite 6, TailwindCSS 3.4 |
+| State | Zustand 5 с persist middleware |
+| Визуализация | React Flow, Lucide Icons, SVG анимации |
+| Backend | FastAPI 0.115, Uvicorn, Python 3.11+ |
+| Database | SQLite (aiosqlite) — диалоги, память, календарь |
+| Data | pandas, numpy — табличные вычисления |
+| Documents | pypdf, python-docx, openpyxl, python-pptx, Pillow |
+| Streaming | SSE (sse-starlette), WebSocket |
+| Tools | MCP (GitHub), safe Python executor |
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/settings/providers` | Get provider configs (keys masked) |
-| POST | `/api/settings/providers` | Save provider settings |
-| GET | `/api/models/{provider}` | List available models |
+## Docker
 
-### Health
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/health` | Health check |
-
-## Project Structure
-
-```
-deepthink-ui/
-├── backend/
-│   ├── app/
-│   │   ├── main.py                 # FastAPI entry, CORS, lifespan
-│   │   ├── api/
-│   │   │   ├── routes.py           # Chat, conversations, folders, settings, models
-│   │   │   ├── pipeline.py         # Multi-agent pipeline endpoints
-│   │   │   ├── calendar.py         # Calendar CRUD + free slots
-│   │   │   └── schemas.py          # Pydantic request/response models
-│   │   ├── core/
-│   │   │   └── config.py           # Settings from .env
-│   │   ├── db/
-│   │   │   ├── database.py         # SQLite: conversations, messages, folders, settings
-│   │   │   └── calendar.py         # SQLite: calendar events
-│   │   ├── providers/
-│   │   │   ├── base.py             # BaseLLMProvider (stream + complete)
-│   │   │   └── registry.py         # OpenRouter, DeepSeek, Cloud.ru, Custom
-│   │   ├── reasoning/
-│   │   │   ├── engine.py           # ReasoningEngine: 5 strategies + PersonaBuilder
-│   │   │   └── gtot_engine.py      # Grounded Tree of Thoughts for pipeline
-│   │   ├── agents/
-│   │   │   ├── base_agent.py       # Abstract agent with event emission
-│   │   │   ├── architect.py        # Repo analysis + implementation plan
-│   │   │   ├── developer.py        # Code change generation
-│   │   │   ├── tester.py           # Sandbox test execution
-│   │   │   ├── orchestrator.py     # Iteration decision + PR creation
-│   │   │   └── utils.py            # Shared JSON parsing utilities
-│   │   ├── pipeline/
-│   │   │   ├── dev_loop.py         # Main iteration loop
-│   │   │   └── context.py          # Pipeline state (CodeChange, Issue, DevLoopContext)
-│   │   ├── mcp/
-│   │   │   ├── client.py           # MCP client with timeout protection
-│   │   │   └── github_tools.py     # GitHub MCP tool wrappers
-│   │   └── sandbox/
-│   │       └── e2b_sandbox.py      # E2B sandbox (async-safe)
-│   ├── requirements.txt
-│   └── .env.example
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx                 # Layout: Sidebar + tab routing (Chat/Pipeline/Calendar)
-│   │   ├── components/
-│   │   │   ├── chat/               # ChatArea, ChatInput, ChatMessage, StreamingMessage,
-│   │   │   │                       # ModelSelector, EmptyState
-│   │   │   ├── Pipeline/           # PipelineView, AgentFeed, AgentCard, IterationTimeline,
-│   │   │   │                       # ReasoningTree, GroundedTree, MCPCallLog, SandboxOutput
-│   │   │   ├── Calendar/           # CalendarView (weekly grid with event chips)
-│   │   │   ├── reasoning/          # PersonaIndicator
-│   │   │   ├── settings/           # SettingsDialog
-│   │   │   └── sidebar/            # Sidebar, ChatExplorer (folders + DnD)
-│   │   ├── stores/
-│   │   │   ├── chatStore.ts        # Conversations, messages, SSE streaming
-│   │   │   ├── pipelineStore.ts    # Pipeline tasks, WebSocket events
-│   │   │   ├── calendarStore.ts    # Calendar events, week navigation
-│   │   │   └── themeStore.ts       # Dark/light theme toggle
-│   │   ├── lib/
-│   │   │   ├── api.ts              # Typed API client + SSE stream parser
-│   │   │   └── utils.ts            # Helpers (generateId, formatTimestamp, cn)
-│   │   └── types/
-│   │       ├── index.ts            # Core types: Message, Conversation, ReasoningStrategy
-│   │       └── pipeline.ts         # Pipeline types: PipelineEvent, GToTNode, DevLoopContext
-│   ├── package.json
-│   ├── vite.config.ts              # Dev proxy /api -> localhost:8000
-│   └── tailwind.config.js
-└── README.md
+```bash
+docker-compose up
+# Backend: :8000, Frontend: :3000
 ```
 
-## Architecture
+CORS автоматически настроен для Docker-окружения.
 
-```
-Browser (React 19 + Zustand)
-    │
-    ├── SSE stream ──────────────> POST /api/chat
-    ├── WebSocket ───────────────> WS /api/pipeline/{id}/stream
-    └── REST ────────────────────> GET/POST/PATCH/DELETE /api/*
-                                        │
-                                   FastAPI (async)
-                                        │
-                    ┌───────────────────┼───────────────────┐
-                    │                   │                   │
-             ReasoningEngine      DevLoop Pipeline    Calendar DB
-              (5 strategies)           │
-                    │            ┌─────┼─────┐
-                    │         Architect  Developer  Tester
-                    │            │         │         │
-                    └────────────┴────┬────┘    E2B Sandbox
-                                      │
-                              LLM Providers          MCP / GitHub
-                         (OpenRouter, DeepSeek,
-                          Cloud.ru, Custom)
-```
-
-## Session & Persona System
-
-Each conversation maintains a `SessionContext` that tracks:
-- **Domain history** — detected domains across messages with frequency-based dominant domain
-- **User expertise signals** — inferred from conversation depth (beginner/intermediate/expert)
-- **Auto-retune** — re-evaluates domain every 2 turns
-
-The `PersonaBuilder` constructs a system prompt establishing the "DeepThink" identity with domain-specific expertise, adapted to the user's inferred level. All reasoning happens inside `<thinking>` tags; the final answer follows the principle "think deeply, answer briefly."
-
-## License
+## Лицензия
 
 MIT

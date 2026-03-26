@@ -103,6 +103,7 @@ export async function* streamChat(
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let currentEvent = 'message';
 
   while (true) {
     const { done, value } = await reader.read();
@@ -111,8 +112,6 @@ export async function* streamChat(
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');
     buffer = lines.pop() || '';
-
-    let currentEvent = 'message';
 
     for (const line of lines) {
       if (line.startsWith('event: ')) {
@@ -125,7 +124,7 @@ export async function* streamChat(
           yield { event: currentEvent, data };
           currentEvent = 'message';
         } catch {
-          // skip malformed
+          // skip malformed JSON
         }
       }
     }

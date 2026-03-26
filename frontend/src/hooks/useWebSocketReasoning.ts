@@ -9,15 +9,22 @@ type ServerEvent =
   | { type: 'done'; data: Record<string, unknown> }
   | { type: 'error'; data: { message: string } };
 
+export interface PrefillData {
+  domain: string | null;
+  strategy: string | null;
+}
+
 interface UseWebSocketReasoningReturn {
   /** Send a partial (in-progress) query for predictive reasoning. Debounced internally. */
   sendPartial: (text: string, provider?: string, model?: string) => void;
-  /** Notify server that the user submitted the final query. */
-  sendFinal: (text: string) => void;
+  /** Notify server that the user submitted the final query. Returns prefill data if available. */
+  sendFinal: (text: string) => PrefillData | null;
   /** Whether the server is currently pre-thinking on a partial query. */
   isPrethinking: boolean;
   /** Whether a usable prefill result is ready. */
   prefillReady: boolean;
+  /** Current prefill data from predictive reasoning. */
+  prefillData: PrefillData | null;
 }
 
 const DEBOUNCE_MS = 500;
@@ -32,6 +39,8 @@ export function useWebSocketReasoning(sessionId: string): UseWebSocketReasoningR
 
   const [isPrethinking, setIsPrethinking] = useState(false);
   const [prefillReady, setPrefillReady] = useState(false);
+  const prefillDataRef = useRef<PrefillData | null>(null);
+  const [prefillData, setPrefillData] = useState<PrefillData | null>(null);
 
   // ── WebSocket lifecycle ──
 
@@ -66,12 +75,18 @@ export function useWebSocketReasoning(sessionId: string): UseWebSocketReasoningR
         case 'prefill_started':
           setIsPrethinking(true);
           setPrefillReady(false);
+          prefillDataRef.current = { domain: msg.data.domain, strategy: msg.data.strategy };
+          setPrefillData(prefillDataRef.current);
           break;
 
-        case 'prefill_ready':
+        case 'prefill_ready': {
           setIsPrethinking(false);
           setPrefillReady(true);
+          const data = { domain: msg.data.domain, strategy: msg.data.strategy };
+          prefillDataRef.current = data;
+          setPrefillData(data);
           break;
+        }
 
         case 'reasoning_chunk':
           // Could be used for real-time thinking preview — currently just indicates activity
@@ -140,11 +155,15 @@ export function useWebSocketReasoning(sessionId: string): UseWebSocketReasoningR
         send({ type: 'cancel' });
         setIsPrethinking(false);
         setPrefillReady(false);
+        prefillDataRef.current = null;
+        setPrefillData(null);
         return;
       }
 
       debounceRef.current = setTimeout(() => {
         setPrefillReady(false);
+        prefillDataRef.current = null;
+        setPrefillData(null);
         send({
           type: 'partial_query',
           content: trimmed,
@@ -157,16 +176,23 @@ export function useWebSocketReasoning(sessionId: string): UseWebSocketReasoningR
   );
 
   const sendFinal = useCallback(
-    (text: string) => {
+    (text: string): PrefillData | null => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+
+      // Capture prefill data before resetting
+      const captured = prefillDataRef.current;
 
       send({ type: 'final_query', content: text.trim() });
       // Reset state — the HTTP POST flow takes over from here
       setIsPrethinking(false);
       setPrefillReady(false);
+      prefillDataRef.current = null;
+      setPrefillData(null);
+
+      return captured;
     },
     [send],
   );
 
-  return { sendPartial, sendFinal, isPrethinking, prefillReady };
+  return { sendPartial, sendFinal, isPrethinking, prefillReady, prefillData };
 }

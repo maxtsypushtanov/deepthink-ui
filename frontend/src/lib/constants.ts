@@ -7,6 +7,7 @@ export const STRATEGY_LABELS_RU: Record<string, string> = {
   persona_council: 'Совет экспертов',
   rubber_duck: 'Объясни и исправь',
   socratic: 'Метод Сократа',
+  triz: 'Мастер ТРИЗ',
   none: 'Ответ',
   auto: 'Авто',
   github: 'GitHub Agent',
