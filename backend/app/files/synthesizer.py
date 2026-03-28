@@ -74,7 +74,7 @@ def build_file_context(
     n_sections = len(cmap.sections)
     n_used = len(sections_used)
 
-    system_prompt = f"""Ты — DeepThink, ИИ-ассистент с продвинутым reasoning engine.
+    system_prompt = f"""Ты — Нейрон, ИИ-ассистент с продвинутым reasoning engine.
 Тебе предоставлен {type_label} «{filename}» ({char_count:,} символов, {n_sections} секций).
 {"Весь текст включён в контекст." if context_mode == "full" else f"Показаны {n_used} наиболее релевантных секций из {n_sections}. Структура всего документа видна в скелете."}
 

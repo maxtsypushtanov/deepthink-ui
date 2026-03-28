@@ -1,396 +1,200 @@
-# Аудит проекта DeepThink UI
+# DeepThink — Полный аудит платформы
 
-Дата: 2026-03-25
-Аудитор: Claude Code (Opus 4.6)
-
----
-
-## Executive Summary
-
-- **Overall rating: 7/10**
-- **Critical issues: 3**
-- **High: 6**
-- **Low: 5**
-
-DeepThink UI -- это зрелый прототип LLM Web UI с продвинутым reasoning engine, поддержкой множества стратегий рассуждений (CoT, Budget Forcing, Best-of-N, Tree of Thoughts, Persona Council, Rubber Duck, Socratic), календарем, файловым анализом и интеграцией GitHub через MCP. Архитектура в целом хорошо продумана, код читаемый, разделение ответственности соблюдается. Основные проблемы связаны с безопасностью хранения секретов, отсутствием аутентификации, потенциальными утечками памяти и высоким расходом LLM-вызовов в режиме "auto".
+> Дата: 2026-03-27 | Тесты: 59 passed, 10 skipped
 
 ---
 
-## Architecture Overview
+## 1. Результаты тестирования
 
-### Компонентная схема
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                     Frontend (React + Vite)              │
-│  ┌──────────┐  ┌──────────────┐  ┌────────────────────┐ │
-│  │ ChatArea  │  │ CalendarView │  │ Settings/Sidebar   │ │
-│  └────┬─────┘  └──────┬───────┘  └────────┬───────────┘ │
-│       │               │                    │             │
-│  ┌────┴───────────────┴────────────────────┴──────────┐  │
-│  │        Zustand Stores (chat, calendar, fork)       │  │
-│  └────────────────────┬───────────────────────────────┘  │
-│                       │ SSE / REST / WebSocket            │
-└───────────────────────┼─────────────────────────────────┘
-                        │
-┌───────────────────────┼─────────────────────────────────┐
-│              Backend (FastAPI + aiosqlite)               │
-│                       │                                  │
-│  ┌────────────────────┴───────────────────────────────┐  │
-│  │              API Layer (routes, calendar, files, ws)│  │
-│  └──────┬─────────────┬──────────────┬────────────────┘  │
-│         │             │              │                    │
-│  ┌──────┴──────┐ ┌────┴─────┐ ┌─────┴──────┐            │
-│  │  Reasoning  │ │ Files    │ │ MCP Client │            │
-│  │  Engine     │ │ Pipeline │ │ (GitHub)   │            │
-│  │  (8 стратегий)│ │ (parse, │ └────────────┘            │
-│  └──────┬──────┘ │ chunk,   │                            │
-│         │        │ route,   │                            │
-│  ┌──────┴──────┐ │ synth)   │                            │
-│  │  Providers  │ └──────────┘                            │
-│  │  Registry   │                                         │
-│  │ (OpenRouter,│                                         │
-│  │  DeepSeek,  │                                         │
-│  │  CloudRu,   │                                         │
-│  │  Custom)    │                                         │
-│  └──────┬──────┘                                         │
-│         │                                                │
-│  ┌──────┴──────────────────────────────────────────────┐ │
-│  │           SQLite (aiosqlite + WAL mode)             │ │
-│  │  conversations, messages, folders, provider_settings,│ │
-│  │  calendar_events                                    │ │
-│  └─────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────┘
-```
-
-### Ключевые потоки данных
-
-1. **Chat flow**: Frontend -> SSE POST `/api/chat` -> ReasoningEngine.run() -> LLM provider -> SSE events -> Frontend
-2. **Calendar flow**: Chat с `calendar_mode=true` -> Direct streaming (без ReasoningEngine) -> Calendar draft -> User confirms -> `/api/calendar/confirm` -> DB
-3. **File analysis**: Upload -> Parse -> Chunk (если > 100K символов) -> Route (выбор стратегии) -> ReasoningEngine -> SSE stream
-4. **GitHub flow**: Chat с `github_mode=true` -> Agentic loop (до 6 раундов) -> MCP tool calls -> SSE stream
-5. **Predictive reasoning (WS)**: WebSocket -> prefill domain/complexity while user types -> reuse if query similar enough
+### Движок рассуждений (engine.py)
+| Тест | Результат | Детали |
+|------|-----------|--------|
+| Эвристика: короткий вопрос → score 1 | PASS | |
+| Эвристика: код → score 4 | PASS | |
+| Keyword detection: ТРИЗ, сравни, эксперты, почему, докажи | PASS | |
+| Keyword detection: "отладить" | **BUG** | Не матчит — нет формы инфинитива |
+| Эвристика: средний вопрос (6 слов) | **BUG** | Score 1 вместо 2, порог < 15 слов завышен для русского |
+| Эвристика: мультивопрос (3 вопроса) | **BUG** | Score 2 из-за ошибки в OR-условии |
+| Классификация: простой → NONE | PASS | |
+| Классификация: код + LLM → persona_council | PASS | |
+| Классификация: TRIZ через hint | PASS | |
+| Классификация: LLM failure → fallback | PASS | |
+| Классификация: пустые сообщения | PASS | |
+| Домен: корректный → возвращает | PASS | |
+| Домен: невалидный → "general" | PASS | |
+| Домен: LLM ошибка → "general" | PASS | |
+| run(): AUTO → все типы событий | PASS | |
+| run(): NONE → passthrough | PASS | |
+| run(): COT → thinking_step + content | PASS | |
+| run(): prefill пропускает классификацию | PASS | |
+| run(): не мутирует входные messages | PASS | |
+| SessionContext: рост detected_domains | PASS (BUG зафиксирован — unbounded) | |
+| Амбигуация: короткое → не ambiguous | PASS | |
+| Prefill cache: put/get/remove/eviction/LRU | 5/5 PASS | |
+| compare_queries: все edge cases | 8/8 PASS | |
+| Chunker: single/overlap/empty/whitespace | 5/5 PASS | |
+| search_chunks: keyword match | PASS | |
+| should_use_python: все паттерны | 5/5 PASS | |
 
 ---
 
-## Critical Issues
+## 2. Обнаруженные баги (подтверждены тестами)
 
-### C1. API-ключи хранятся в БД в открытом виде (plaintext)
+### BUG-1: Порог word_count < 15 завышен для русского языка
+**Файл:** `engine.py:1850`
+**Проблема:** Русские предложения в среднем на 30-40% короче английских из-за флективности. Вопрос "Как работает фотосинтез у растений?" (6 слов) — нормальный средний вопрос, но получает score = 1 (тривиальный).
+**Рекомендация:** Снизить порог до `< 8` или использовать символьную длину вместо количества слов.
 
-**Файл**: `/backend/app/db/database.py:56-62` (schema), `/backend/app/db/database.py:298-312` (save_provider_settings)
-
-**Проблема**: Поле `api_key` в таблице `provider_settings` хранится как `TEXT NOT NULL DEFAULT ''` без шифрования. При получении ключа (`get_provider_key`, строка 349) он читается напрямую. Любой, кто получит доступ к файлу `deepthink.db`, получит все API-ключи в открытом виде.
-
-**Риск**: Утечка всех API-ключей провайдеров при компрометации файловой системы.
-
-**Рекомендация**: Шифровать api_key перед записью (например, Fernet из cryptography с мастер-ключом из переменной окружения). Как минимум -- ограничить права доступа к файлу БД.
-
----
-
-### C2. Отсутствие аутентификации и авторизации
-
-**Файл**: `/backend/app/main.py:31-37`, все эндпоинты в `/backend/app/api/routes.py`
-
-**Проблема**: Ни один эндпоинт не требует аутентификации. Любой, кто может достучаться до порта 8000 (а `host` по умолчанию `0.0.0.0` в `/backend/app/core/config.py:19`), получает полный доступ ко всем данным: чтение/удаление чатов, управление API-ключами, выполнение GitHub-операций с сохраненным токеном.
-
-**Риск**: Полный несанкционированный доступ к данным и ресурсам при развертывании в сети.
-
-**Рекомендация**: Добавить минимальную аутентификацию (хотя бы Bearer token или basic auth). Сменить `host` по умолчанию на `127.0.0.1` для локального использования.
-
----
-
-### C3. Подтверждение календарных действий принимает произвольный dict
-
-**Файл**: `/backend/app/api/routes.py:667-675`
-
+### BUG-2: OR-условие в scoring сломано
+**Файл:** `engine.py:1852`
 ```python
-@router.post("/api/calendar/confirm")
-async def confirm_calendar_action(req: dict = Body(...)):
-    result = await _execute_calendar_action(req)
+elif word_count <= 50 or question_marks == 1:
+    score = 2
 ```
-
-**Проблема**: Эндпоинт `/api/calendar/confirm` принимает произвольный `dict` без Pydantic-валидации и передает его напрямую в `_execute_calendar_action`. Функция `_execute_calendar_action` (строки 105-159) доверяет полям `event_id`, `title`, `start_time`, `end_time` из входного dict без проверки типов. Хотя SQL-инъекция маловероятна (используются параметризованные запросы), отсутствие схемы валидации означает, что клиент может отправить неожиданные поля.
-
-**Риск**: Обход валидации, потенциальное удаление/обновление чужих событий через подмену `event_id`.
-
-**Рекомендация**: Заменить `dict = Body(...)` на строго типизированную Pydantic-модель.
-
----
-
-## High Issues
-
-### H1. Глобальное singleton-подключение к SQLite без connection pooling
-
-**Файл**: `/backend/app/db/database.py:19-20, 77-86`
-
+**Проблема:** `question_marks == 1` в OR означает: любой вопрос с 1 знаком вопроса = score 2. А `word_count <= 50` ловит вообще всё до 50 слов, включая мультивопросы с 3+ вопросительными знаками.
+**Рекомендация:** Разделить условия:
 ```python
-_db_connection: aiosqlite.Connection | None = None
-_db_lock = asyncio.Lock()
+if question_marks >= 3 or word_count > 50:
+    score = 3
+elif word_count <= 50:
+    score = 2
 ```
 
-**Проблема**: Используется одно глобальное подключение к SQLite, которое разделяется между всеми запросами. Lock используется только при первой инициализации. При concurrent записи из нескольких корутин (например, несколько одновременных чатов с commit), возможны ошибки "database is locked" или повреждение данных.
-
-**Риск**: Потеря данных или ошибки при конкурентном доступе.
-
-**Рекомендация**: Использовать пул подключений или мьютекс для операций записи.
-
----
-
-### H2. Утечка памяти в `_session_contexts` и `_file_cache`
-
-**Файл**: `/backend/app/api/routes.py:37-38`, `/backend/app/api/files.py:25-26`
-
-**Проблема**: `_session_contexts` (dict, макс. 1000 записей) и `_file_cache` (dict, макс. 50 записей) используют наивную LRU-стратегию -- при достижении лимита удаляется первый элемент (`next(iter(...))`). Однако:
-- `_session_contexts` не имеет TTL -- контексты для давно неактивных разговоров занимают память бесконечно.
-- `_file_cache` хранит полный распарсенный текст файлов (до 20MB каждый). 50 файлов * 20MB = до 1GB RAM.
-- Нет механизма очистки при перезагрузке или по таймеру.
-
-**Риск**: OOM при долгой работе сервера.
-
-**Рекомендация**: Добавить TTL (например, 1 час для файлов), использовать `cachetools.TTLCache` или аналогичную библиотеку.
+### BUG-3: Русская морфология не учтена в keywords
+**Файл:** `engine.py:1808`
+**Проблема:** Ключевое слово "отладь" (императив) не матчит "отладить" (инфинитив), "отладка" (существительное), "отладки" (родительный). Та же проблема с "сравни"/"сравнение".
+**Рекомендация:** Использовать стемминг (pymorphy3) или regex-основы: `r"отлад"`, `r"сравн"`, `r"изобрет"`.
 
 ---
 
-### H3. В режиме "auto" делается 3 параллельных LLM-вызова на каждое сообщение
+## 3. Критические проблемы архитектуры
 
-**Файл**: `/backend/app/reasoning/engine.py:382-388`
+### CRITICAL-1: run() не ловит исключения стратегий
+**Файл:** `engine.py:739-773`
+Если стратегия падает после первого yield, клиент получает оборванный stream без error-ивента. Нужен try/except вокруг каждого `async for`.
 
+### CRITICAL-2: asyncio.gather() без таймаутов
+**Файлы:** `engine.py` (строки 668, 680, 691, 979, 1080, 1267, 1681)
+Все параллельные LLM-вызовы без timeout. Если провайдер завис — вся стратегия зависает навсегда.
+**Рекомендация:** `asyncio.wait_for(asyncio.gather(...), timeout=60)`
+
+### CRITICAL-3: Python sandbox обходится
+**Файл:** `python_sandbox.py:76-99`
+`exec()` с ограниченным `__builtins__` обходится через `[].__class__.__bases__[0].__subclasses__()`. Нельзя использовать для выполнения пользовательского кода без настоящего sandboxing (Docker/subprocess с rlimit).
+**Рекомендация:** Выполнять код в изолированном subprocess с `resource.setrlimit()` или Docker-контейнере.
+
+### CRITICAL-4: Prompt injection через format strings
+**Файл:** `engine.py:1735` (persona_council moderator prompt)
 ```python
-(is_ambiguous, clarification_q), classified_strategy, domain = await asyncio.gather(
-    self._check_ambiguity(messages),
-    self._classify_complexity(messages),
-    self._detect_domain(messages),
-)
+moderator_prompt = self.COUNCIL_MODERATOR_PROMPT.format(question=user_query, opinions=opinions_text)
 ```
-
-**Проблема**: При `strategy=auto` (дефолт) каждое сообщение пользователя порождает 3 дополнительных LLM-вызова для классификации ПЕРЕД основным запросом. Для стратегий вроде Tree of Thoughts (до `breadth * depth + 2` вызовов) или Persona Council (4 + 1 вызов) суммарное количество LLM-вызовов на одно сообщение может достигать 20+.
-
-**Стоимость LLM-вызовов по стратегии (auto mode)**:
-- none: 3 (classification) + 1 = 4
-- cot: 3 + 1 = 4
-- budget_forcing (3 rounds): 3 + 3 = 6
-- best_of_n (3): 3 + 3 + 1 (vote) = 7
-- tree_of_thoughts (3x2): 3 + 6 (branches) + 6 (scores) + 1 (synthesis) = 16
-- persona_council: 3 + 4 (experts) + 1 (moderator) = 8
-- socratic: 3 + 1 (questions) + 3 (answers) + 1 (synthesis) = 8
-- rubber_duck: 3 + 1 (draft) + 1 (review) + 1 (fix) = 6
-
-**Риск**: Высокая стоимость и задержка, особенно для простых вопросов, которые всё равно получат `strategy=none`.
-
-**Рекомендация**: Объединить domain + complexity в один LLM-вызов. Рассмотреть кеширование domain detection на уровне сессии (частично реализовано через `retune_if_needed`, но classification всё равно вызывается каждый раз).
+Если user_query содержит `{` и `}` — format() крашится с KeyError.
+**Рекомендация:** Использовать `Template.safe_substitute()` или f-string с escape.
 
 ---
 
-### H4. WebSocket предсказательный reasoning выполняет спекулятивные LLM-вызовы
+## 4. Проблемы средней серьёзности
 
-**Файл**: `/backend/app/api/ws.py:59-120`
+### MED-1: SessionContext — unbounded list growth
+**Файл:** `engine.py:75` — `detected_domains.append()` без ограничения. После 1000 ходов — memory leak.
+**Фикс:** `self.detected_domains = self.detected_domains[-20:]`
 
-**Проблема**: Функция `_run_prefill` при каждом `partial_query` (каждом нажатии клавиши после дебаунса) запускает:
-1. `_detect_domain` (1 LLM-вызов)
-2. `_classify_complexity` (1 LLM-вызов)
-3. Для стратегий CoT/None: полный draft CoT (1 streaming LLM-вызов)
+### MED-2: Нет rate limiting на /api/chat
+**Файл:** `routes.py` — Любой клиент может спамить запросы.
 
-Если пользователь печатает быстро, предыдущие задачи отменяются, но LLM-вызовы уже могут быть в процессе (HTTP-запрос не отменяется при `task.cancel()`). Threshold сходства (`SIMILARITY_THRESHOLD = 0.7`) означает, что ~30% prefill результатов будут отброшены как нерелевантные.
+### MED-3: Vote step без system prompt
+**Файл:** `engine.py:1012-1018` — Best-of-N голосование идёт без контекста persona. LLM может не понять формат.
 
-**Риск**: Расточительное потребление LLM-квоты и compute.
+### MED-4: Budget forcing — temperature creep undocumented
+**Файл:** `engine.py:911` — `temperature=0.3 + (round * 0.1)`. К 3-му раунду T=0.5. Менее детерминистичный ответ.
 
-**Рекомендация**: Увеличить дебаунс. Не запускать draft CoT при partial query -- ограничиться domain + complexity. Добавить отмену HTTP-запроса при cancel задачи.
+### MED-5: Crash mid-stream → orphaned messages
+**Файл:** `routes.py:1352-1357` — Если engine падает, user message сохранён, но assistant message — нет. БД в inconsistent state.
 
----
+### MED-6: Провайдеры — нет retry при HTTP 429
+**Файл:** `providers/base.py` — Нет exponential backoff при rate limit.
 
-### H5. SSRF-защита для CustomProvider обходится по DNS
+### MED-7: Memory decay никогда не запланирован
+**Файл:** `db/database.py:486` — `decay_memories()` вызывается только после разговора, нет фонового scheduler'а.
 
-**Файл**: `/backend/app/providers/registry.py:12-32, 59-69`
+### MED-8: Чанкер O(n²) на whitespace-heavy текстах
+**Файл:** `chunker.py:50` — `start = max(start + 1, ...)` при пустых чанках продвигается по 1 символу.
 
-**Проблема**: Функция `_is_internal_url` проверяет hostname на момент конфигурации, но DNS-запись может измениться между проверкой и фактическим HTTP-запросом (TOCTOU). Кроме того:
-- Не блокируются IPv6-адреса вида `[::1]`, `[::ffff:127.0.0.1]`
-- Не блокируется `0.0.0.0`
-- Резолвинг DNS не выполняется (проверяется только literal IP)
-- При `base_url=None` дефолт `http://localhost:11434/v1` разрешается (строка 60), но если пользователь явно передает `localhost` -- блокируется (строка 65). Это непоследовательно.
+### MED-9: Calendar delete по substring
+**Файл:** `routes.py:132-140` — "Удали standup" удалит первое событие содержащее "standup" в названии. Может удалить не то.
 
-**Риск**: SSRF через DNS rebinding или IPv6-адреса.
-
-**Рекомендация**: Резолвить DNS и проверять результирующий IP. Блокировать `0.0.0.0`, `[::]`, IPv6-mapped IPv4. Выполнять проверку при каждом запросе, не только при инициализации.
-
----
-
-### H6. GitHub PAT передается в окружение subprocess без ограничения scope
-
-**Файл**: `/backend/app/api/routes.py:280-284`
-
-```python
-mcp_client = MCPClient(
-    command="npx",
-    args=["-y", "@modelcontextprotocol/server-github"],
-    env={"GITHUB_PERSONAL_ACCESS_TOKEN": token},
-)
-```
-
-**Проблема**: GitHub PAT с потенциально широкими правами передается в subprocess (npx), который скачивает пакет из npm при каждом вызове (`-y` автоподтверждение). При supply chain атаке на `@modelcontextprotocol/server-github` токен будет скомпрометирован. Кроме того, GitHubTools предоставляет операции записи (create_issue, merge_pull_request, push_files) без дополнительного подтверждения пользователя.
-
-**Риск**: Компрометация GitHub-аккаунта при supply chain атаке; непреднамеренные мутирующие операции (merge, push).
-
-**Рекомендация**: Закрепить версию npm-пакета. Разделить read-only и write-операции и требовать подтверждения для мутирующих действий. Рекомендовать fine-grained PAT с минимальными scope.
+### MED-10: Single DB connection — bottleneck
+**Файл:** `db/database.py:92-101` — Один глобальный коннект для всех async-операций.
 
 ---
 
-## Low Issues
+## 5. Инновационные предложения по устойчивости и скорости
 
-### L1. Неиспользуемый `system_prompt` в `build_file_context`
+### I-1: Speculative Strategy Execution (спекулятивный запуск)
+**Проблема:** Классификация сложности = 1 LLM-вызов (200-500ms) + 1 LLM-вызов на домен.
+**Решение:** Пока классификатор думает, спекулятивно запускать CoT (самая частая стратегия для score 3). Если классификатор вернул COT — ответ уже готов. Если другую — отменить спекулятивный и запустить правильную.
+**Выигрыш:** -300-500ms latency для ~40% запросов.
 
-**Файл**: `/backend/app/files/synthesizer.py:62-76`
+### I-2: Adaptive Temperature Scheduling
+**Проблема:** Temperature жёстко задан в коде для каждой стратегии.
+**Решение:** Трекать метрики качества (user regeneration rate, confidence score) и автоматически тюнить temperature per strategy per domain. Если пользователь часто regenerates budget_forcing → повысить или понизить temperature.
+**Выигрыш:** Лучше качество ответов, меньше regeneration.
 
-**Проблема**: Функция `build_file_context` строит подробный `system_prompt` (строки 62-76), но в `/backend/app/api/files.py:151-153` messages создаются БЕЗ system prompt -- используется только `user` сообщение. ReasoningEngine.run() затем заменяет messages[0] на persona prompt, а system_prompt из synthesizer полностью игнорируется.
+### I-3: Strategy Cache — кэширование по семантическому fingerprint
+**Проблема:** Одинаковые вопросы проходят полный pipeline каждый раз.
+**Решение:** Для стратегий none/cot — кэш по Jaccard similarity > 0.9 с TTL. Best-of-N/Tree-of-Thoughts не кэшировать (каждый раз разные ветки).
+**Выигрыш:** Мгновенный ответ для повторяющихся вопросов.
 
-**Рекомендация**: Либо использовать `ctx["system_prompt"]` в messages, либо удалить мертвый код.
+### I-4: Streaming Budget Forcing — показывать прогресс
+**Проблема:** Промежуточные раунды буферизуются, пользователь видит "пустоту" 10-30 секунд.
+**Решение:** Стримить промежуточные раунды в thinking panel в реальном времени (не ждать окончания раунда).
+**Выигрыш:** Felt performance improvement — пользователь видит что движок работает.
 
----
+### I-5: Connection Pool для SQLite
+**Проблема:** Один глобальный коннект = bottleneck при конкурентных запросах.
+**Решение:** Использовать `aiosqlite` connection pool (3-5 connections) или переход на `databases` пакет с async pool.
+**Выигрыш:** Параллельные SQL-запросы не блокируют друг друга.
 
-### L2. `_TOOL_ACTIONS` dict создается при каждом tool call
+### I-6: Graceful Degradation Pipeline
+**Проблема:** Если LLM-провайдер упал — всё сломалось.
+**Решение:** Каскадный fallback: если основной провайдер 429/500 → retry 1x с backoff → fallback на более дешёвую модель → если все провайдеры down → вернуть кэшированный ответ или "извините, сервис недоступен" с ETA.
+**Выигрыш:** Платформа работает даже при partial outage провайдера.
 
-**Файл**: `/backend/app/api/routes.py:342-357`
+### I-7: Batch Classification — один LLM-вызов вместо трёх
+**Проблема:** AUTO = 3 параллельных LLM-вызова (domain + complexity + ambiguity). Это 3× API cost.
+**Решение:** Один промпт который возвращает `{"domain": "...", "complexity": 4, "ambiguous": false, "strategy": "..."}`. Structured JSON output вместо 3 отдельных вызовов.
+**Выигрыш:** 3x меньше API-вызовов для классификации. Быстрее. Дешевле.
 
-**Проблема**: Словарь `_TOOL_ACTIONS` определяется внутри цикла `for match in tool_matches:`, т.е. пересоздается для каждого tool call в каждом раунде. Это мелкая неоптимальность, но засоряет hot path.
+### I-8: Process-level Python Sandbox
+**Проблема:** exec()-based sandbox легко обходится.
+**Решение:** Выполнять код в `subprocess.Popen()` с `resource.setrlimit(RLIMIT_AS, 256MB)`, `RLIMIT_CPU, 15s`, `RLIMIT_NOFILE, 0` (запрет файлов). Плюс `seccomp` фильтр на Linux.
+**Выигрыш:** Реальная изоляция, не обходится через __subclasses__.
 
-**Рекомендация**: Вынести на уровень модуля.
+### I-9: Stem-based Keyword Matching для русского
+**Проблема:** Keyword matching по точному совпадению промахивается по русским формам слов.
+**Решение:** Вместо `"отладь" in msg` → использовать stems: `r"отлад|дебаг|debug"` через regex. Один regex на стратегию вместо цикла по ключевым словам.
+**Выигрыш:** Точнее keyword detection, ~5% больше правильно выбранных стратегий.
 
----
-
-### L3. Дефолтная модель в WebSocket не синхронизирована с фронтендом
-
-**Файл**: `/backend/app/api/ws.py:132` vs `/frontend/src/stores/chatStore.ts:77`
-
-**Проблема**: WebSocket endpoint использует дефолтную модель `openai/gpt-4o-mini`, а фронтенд -- `google/gemini-3.1-flash-lite-preview`. При первом partial_query без явного model клиент и сервер будут использовать разные модели.
-
-**Рекомендация**: Использовать единую константу или всегда передавать model из фронтенда.
-
----
-
-### L4. `search_conversations` уязвим к wildcard LIKE-запросу
-
-**Файл**: `/backend/app/db/database.py:332-346`
-
-```python
-pattern = f"%{query}%"
-cursor = await db.execute(
-    "...WHERE c.title LIKE ? OR m.content LIKE ?...",
-    (pattern, pattern),
-)
-```
-
-**Проблема**: Символы `%` и `_` в пользовательском вводе не экранируются, что позволяет пользователю влиять на паттерн LIKE (например, ввести `%` для получения всех записей, или `_` как wildcard). Это не SQL-инъекция (используются параметры), но позволяет обходить ожидаемую семантику поиска.
-
-**Рекомендация**: Экранировать `%` и `_` в query перед вставкой в LIKE-паттерн.
-
----
-
-### L5. Отсутствие rate limiting
-
-**Файл**: Все эндпоинты.
-
-**Проблема**: Ни один эндпоинт не имеет rate limiting. `/api/chat` запускает дорогостоящие LLM-вызовы (до 16 на запрос). `/api/calendar/briefing` делает полный LLM-вызов. WebSocket endpoint запускает спекулятивные LLM-вызовы при каждом partial_query.
-
-**Рекомендация**: Добавить rate limiting хотя бы для `/api/chat` и WebSocket (slowapi или кастомный middleware).
+### I-10: Event-Driven Memory Decay
+**Проблема:** Decay вызывается вручную после разговора. Нет фонового scheduler'а.
+**Решение:** `asyncio.create_task` при старте приложения — background loop каждые 6 часов вызывает `decay_memories()`. Или SQLite trigger на INSERT в messages.
+**Выигрыш:** Память не растёт бесконтрольно.
 
 ---
 
-## Security Audit
+## 6. Приоритетный план действий
 
-### Secrets Handling
-
-| Аспект | Статус | Детали |
-|--------|--------|--------|
-| API-ключи в .env | OK | Загружаются через pydantic-settings, файл не коммитится |
-| API-ключи в БД | **CRITICAL** | Хранятся plaintext в SQLite (`provider_settings.api_key`) |
-| Маскировка при GET | OK | `/api/settings/providers` маскирует ключи: `key[:8]...key[-4:]` (`routes.py:1396-1399`) |
-| GitHub PAT | **HIGH** | Передается в subprocess env; `npx -y` скачивает пакет без версии |
-
-### Injection Risks
-
-| Тип | Статус | Детали |
-|-----|--------|--------|
-| SQL Injection | **SAFE** | Все запросы используют параметризованные `?` |
-| Prompt Injection | **LOW RISK** | Пользовательский ввод передается в LLM-промпты напрямую, но это ожидаемое поведение для LLM UI. Calendar system prompt содержит internal event IDs -- утечка через prompt injection маловероятна, но возможна |
-| XXE | **N/A** | XML не парсится |
-| Path Traversal | **SAFE** | Файлы загружаются в tempfile с фиксированным suffix |
-| XSS | **LOW RISK** | Frontend рендерит LLM-ответы как markdown; содержимое не санитизируется на бэкенде |
-
-### File Handling Security
-
-| Аспект | Статус | Детали |
-|--------|--------|--------|
-| Размер файла | OK | Лимит 20MB (`files.py:27`) |
-| Расширения | OK | Whitelist из `SUPPORTED_EXTENSIONS` (`parser.py:10-15`) |
-| Temp files | OK | Создаются через `tempfile.NamedTemporaryFile`, удаляются в `finally` |
-| Image base64 | **LOW RISK** | Base64-encoded image хранится в памяти в `_file_cache` без ограничения на размер decoded data |
-
----
-
-## Performance Notes
-
-### Async correctness
-
-- **aiosqlite**: Корректно используется async/await. Однако single connection (см. H1) -- потенциальное узкое место.
-- **httpx.AsyncClient**: Создается заново при каждом LLM-вызове (`async with httpx.AsyncClient(timeout=120.0)` в `base.py:85, 110`). Это дорого -- создается новый TCP connection pool каждый раз. Рекомендуется переиспользовать client.
-- **asyncio.gather**: Правильно используется для параллелизации (domain detection, branch scoring, expert opinions). `return_exceptions=True` корректно обрабатывается.
-- **MCP subprocess**: Создается новый процесс `npx` при КАЖДОМ GitHub-запросе (`_github_event_stream`). Процесс закрывается после каждого чата. Это очень дорого (~2-5 секунд на spawn).
-
-### Memory Concerns
-
-- `_session_contexts`: до 1000 entries x ~1KB = ~1MB -- приемлемо
-- `_file_cache`: до 50 entries x до 20MB = **до 1GB** -- критично
-- `prefill_cache`: до 100 entries с draft_reasoning (до ~4KB каждый) = ~400KB -- приемлемо
-- SSE event_stream: аккумулирует `full_content`, `all_thinking`, `thinking_buffer`, `content_buffer` -- всё в памяти, но ограничено одним ответом
-
-### LLM Call Counts Per Strategy (auto mode)
-
-| Стратегия | Classification | Strategy calls | Total |
-|-----------|---------------|----------------|-------|
-| none | 3 | 1 | **4** |
-| cot | 3 | 1 | **4** |
-| budget_forcing (3r) | 3 | 3 | **6** |
-| best_of_n (3) | 3 | 3 + 1 vote | **7** |
-| tree_of_thoughts (3x2) | 3 | 6 branches + 6 scores + 1 synthesis | **16** |
-| persona_council | 3 | 4 experts + 1 moderator | **8** |
-| socratic | 3 | 1 questions + 3 answers + 1 synthesis | **8** |
-| rubber_duck | 3 | 1 draft + 1 review + 1 fix | **6** |
-| calendar (bypass) | 0 | 1 | **1** |
-| github (up to 6 rounds) | 0 | 1-6 | **1-6** |
-
----
-
-## Recommendations
-
-### R1. Добавить аутентификацию
-Минимально -- Bearer token через env variable. Для production -- OAuth2 или session-based auth. Сменить дефолтный host на `127.0.0.1`.
-
-### R2. Шифровать API-ключи в БД
-Использовать симметричное шифрование (Fernet) с мастер-ключом из env. Альтернатива -- хранить ключи только в .env и не дублировать в БД.
-
-### R3. Переиспользовать httpx.AsyncClient
-Создать один `httpx.AsyncClient` на провайдера (или глобальный) и переиспользовать connection pool. Это значительно ускорит LLM-вызовы за счет keep-alive.
-
-### R4. Объединить classification LLM-вызовы
-Вместо 3 отдельных вызовов (ambiguity, complexity, domain) -- один вызов с инструкцией вернуть JSON `{"domain": "...", "complexity": N, "ambiguous": false}`. Экономия 2 LLM-вызова на каждое сообщение в auto mode.
-
-### R5. Кешировать MCP subprocess
-Вместо создания нового `npx` процесса при каждом GitHub-запросе -- держать persistent MCP client на уровне приложения (с graceful restart при ошибках).
-
-### R6. Добавить TTL к in-memory кешам
-Использовать `cachetools.TTLCache` для `_file_cache` (TTL ~30 min), `_session_contexts` (TTL ~2 hours), `prefill_cache` (уже есть timeout, но нет автоочистки expired entries).
-
-### R7. Добавить Pydantic-модель для calendar confirm
-Заменить `dict = Body(...)` на строго типизированную модель с validation для всех полей.
-
-### R8. Добавить structured logging и метрики
-Добавить request ID для трассировки. Логировать время и стоимость каждого LLM-вызова. Рассмотреть OpenTelemetry для production.
-
-### R9. Добавить тесты
-В проекте отсутствуют тесты (не обнаружено файлов `test_*.py` или `*_test.py`). Критически важно покрыть тестами:
-- ReasoningEngine (unit tests для каждой стратегии)
-- Database layer (integration tests)
-- Calendar CRUD
-- SSE streaming (end-to-end)
-
-### R10. Закрепить версию MCP npm-пакета
-Заменить `npx -y @modelcontextprotocol/server-github` на конкретную версию для предотвращения supply chain атак.
+| Приоритет | Действие | Сложность | Влияние |
+|-----------|---------|-----------|---------|
+| P0 | Обернуть стратегии в try/except + yield error event | 15 min | Устраняет зависание клиента |
+| P0 | Добавить asyncio timeout на все gather() | 30 min | Устраняет каскадные зависания |
+| P0 | Исправить format string injection в persona_council | 10 min | Устраняет crash |
+| P1 | Batch Classification (I-7) | 2 hr | 3x меньше API-вызовов |
+| P1 | Исправить heuristic scoring (BUG-1, BUG-2) | 30 min | Точнее выбор стратегии |
+| P1 | Regex stems для keywords (I-9) | 1 hr | Точнее keyword detection |
+| P1 | Graceful Degradation (I-6) | 3 hr | Устойчивость к outage |
+| P2 | Process sandbox (I-8) | 4 hr | Безопасность |
+| P2 | Streaming budget forcing (I-4) | 2 hr | UX при долгих стратегиях |
+| P2 | Speculative execution (I-1) | 4 hr | -300ms latency |
+| P3 | Connection pool (I-5) | 2 hr | Масштабируемость |
+| P3 | Event-driven decay (I-10) | 1 hr | Стабильность памяти |

@@ -4,8 +4,10 @@ import { InspectPanel, type InspectMode } from '@/components/layout/InspectPanel
 import { ChatArea } from '@/components/chat/ChatArea';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ToastContainer } from '@/components/Toast';
+import { OnboardingOverlay } from '@/components/OnboardingOverlay';
 import { useThemeStore } from '@/stores/themeStore';
 import { useChatStore } from '@/stores/chatStore';
+import { api } from '@/lib/api';
 
 const CommandPalette = lazy(() => import('@/components/CommandPalette').then((m) => ({ default: m.CommandPalette })));
 const SettingsDialog = lazy(() => import('@/components/settings/SettingsDialog').then((m) => ({ default: m.SettingsDialog })));
@@ -14,6 +16,18 @@ export default function App() {
   const theme = useThemeStore((s) => s.mode);
   const loadConversations = useChatStore((s) => s.loadConversations);
   const createConversation = useChatStore((s) => s.createConversation);
+  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api.getProviders()
+      .then((providers) => {
+        const hasActiveKey = providers.some(
+          (p) => p.provider === 'openrouter' && p.enabled && p.api_key_preview
+        );
+        setNeedsOnboarding(!hasActiveKey);
+      })
+      .catch(() => setNeedsOnboarding(true));
+  }, []);
 
   const [inspectOpen, setInspectOpen] = useState(false);
   const [inspectMode, setInspectMode] = useState<InspectMode>('reasoning');
@@ -77,6 +91,19 @@ export default function App() {
       window.removeEventListener('deepthink:open-inspect', handleOpenInspect);
     };
   }, [openInspect]);
+
+  if (needsOnboarding === null) {
+    return <div className="flex h-screen bg-background" />;
+  }
+
+  if (needsOnboarding) {
+    return (
+      <div className="h-screen bg-background text-foreground">
+        <OnboardingOverlay onComplete={() => setNeedsOnboarding(false)} />
+        <ToastContainer />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-background text-foreground overflow-hidden">

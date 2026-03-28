@@ -77,7 +77,7 @@ export function EmptyState() {
             </li>
             <li className="flex items-start gap-2">
               <span className="shrink-0 flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[11px] font-medium">3</span>
-              <span>Задай вопрос — DeepThink сам выберет стратегию</span>
+              <span>Задай вопрос — Нейрон сам выберет стратегию</span>
             </li>
           </ol>
           <button

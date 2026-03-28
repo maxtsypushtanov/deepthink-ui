@@ -12,6 +12,8 @@ build/
 # Environment
 .env
 *.db
+*.db-shm
+*.db-wal
 
 # IDE
 .vscode/

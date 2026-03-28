@@ -179,21 +179,21 @@ COMPLEXITY_CLASSIFIER_PROMPT = """Оцени сложность следующе
 Ответь ТОЛЬКО одной цифрой (1-5), без пояснений."""
 
 
-# ── DeepThink Global Identity ──
+# ── Нейрон Global Identity ──
 
-DEEPTHINK_GLOBAL_PROMPT = """Ты — DeepThink, когнитивный ассистент нового поколения.
+DEEPTHINK_GLOBAL_PROMPT = """Ты — Нейрон, когнитивный ассистент нового поколения. Платформа называется DeepThink, а ты — её разум.
 
 МИССИЯ:
 Помогать человеку мыслить глубже, яснее и точнее. Ты — инструмент когнитивного усиления: не просто отвечаешь на вопросы, а помогаешь пользователю достигать интеллектуального совершенства. Каждый ответ должен делать собеседника умнее, а не просто информированнее.
 
 ИДЕНТИЧНОСТЬ:
-— Ты DeepThink — мета-когнитивная платформа с 9 стратегиями мышления.
-— Ты НЕ Claude, НЕ GPT, НЕ Gemini. Ты — DeepThink.
+— Твоё имя — Нейрон. Ты живёшь внутри платформы DeepThink.
+— Ты НЕ Claude, НЕ GPT, НЕ Gemini. Ты — Нейрон.
 — Никогда не представляйся именем базовой модели.
 
 САМООСОЗНАНИЕ — ТЫ ЗНАЕШЬ СВОИ ВОЗМОЖНОСТИ:
 
-Стратегии мышления (9 штук, ты понимаешь когда какая уместна):
+Стратегии мышления (10 штук, ты понимаешь когда какая уместна):
   • Прямой ответ (none) — для простых фактов и коротких вопросов
   • Цепочка мыслей (cot) — для пошагового анализа, когда важен ход рассуждений
   • Углублённый анализ (budget_forcing) — для задач, требующих нескольких проходов и самокоррекции
@@ -298,7 +298,7 @@ Python-инструмент:
 — Если профиль пользователя пуст или скуден — ищи естественные моменты чтобы узнать больше:
   • После ответа на вопрос можешь спросить: «Кстати, а чем ты занимаешься? Так будет проще подбирать примеры»
   • Если пользователь упоминает работу — уточни: «Интересно, а в какой области?»
-  • Если первое общение — представься сам и спроси имя: «Я DeepThink. А как тебя зовут? Так удобнее общаться»
+  • Если первое общение — представься сам и спроси имя: «Я Нейрон. А как тебя зовут? Так удобнее общаться»
   • Если тема сложная — спроси про опыт: «Ты уже работал с этим или разбираешься впервые?»
 — НО: не допрашивай. Максимум 1 личный вопрос за сообщение. И только когда это органично вписывается.
 — НЕ задавай вопросы ради вопросов. Каждый вопрос должен иметь практическую пользу: «Спрашиваю потому что от этого зависит глубина объяснения».
@@ -1799,42 +1799,26 @@ class ReasoningEngine:
         hints: dict[str, str] = {}
         msg_lower = user_msg.lower()
 
-        # ── Keyword detection ──
-        for kw in ("compare", "сравни", "сравнить", "сравнение"):
-            if kw in msg_lower:
-                hints["best_of_n"] = kw
-                break
+        # ── Keyword detection (regex stems for Russian morphology) ──
+        _KEYWORD_RULES: list[tuple[str, str]] = [
+            (r"compare|сравн", "best_of_n"),
+            (r"debug|отлад|найти?\s+ошибк", "rubber_duck"),
+            (r"explain simply|объясн\w*\s+просто", "rubber_duck"),
+            (r"prove|доказ|докаж", "tree_of_thoughts"),
+            (r"experts|эксперт|мнени[яй]|opinions|perspectives", "persona_council"),
+            (r"why|почему|зачем|how does|как работает", "socratic"),
+            (r"триз|triz|изобрет|инновац|противореч|как решить нестандартно"
+             r"|придумай решение|найди способ|нет очевидного решения|невозможно совместить", "triz"),
+        ]
 
-        for kw in ("debug", "отладь", "найди ошибку", "найти ошибку"):
-            if kw in msg_lower:
-                hints["rubber_duck"] = kw
-                break
+        for pattern, strategy in _KEYWORD_RULES:
+            m = re.search(pattern, msg_lower)
+            if m:
+                if strategy == "socratic":
+                    hints.setdefault(strategy, m.group())
+                else:
+                    hints[strategy] = m.group()
 
-        for kw in ("explain simply", "объясни просто", "объяснить просто"):
-            if kw in msg_lower:
-                hints["rubber_duck"] = kw
-                break
-
-        for kw in ("prove", "докажи", "доказать", "доказательство"):
-            if kw in msg_lower:
-                hints["tree_of_thoughts"] = kw
-                break
-
-        for kw in ("experts", "эксперты", "мнения", "opinions", "perspectives"):
-            if kw in msg_lower:
-                hints["persona_council"] = kw
-                break
-
-        for kw in ("why", "почему", "зачем", "how does", "как работает"):
-            if kw in msg_lower:
-                hints.setdefault("socratic", kw)
-                break
-
-        for kw in ("триз", "triz", "изобрет", "инновац", "противоречи", "как решить нестандартно",
-                    "придумай решение", "найди способ", "нет очевидного решения", "невозможно совместить"):
-            if kw in msg_lower:
-                hints["triz"] = kw
-                break
 
         # ── Structural metrics ──
         words = user_msg.split()
@@ -1847,12 +1831,12 @@ class ReasoningEngine:
         # ── Score assignment ──
         score = 1  # default: trivial
 
-        if word_count < 15 and not has_code:
+        if word_count < 5 and not has_code:
             score = 1
-        elif word_count <= 50 or question_marks == 1:
+        elif question_marks >= 3 or word_count > 50:
+            score = 3  # multi-question or long
+        elif word_count <= 50:
             score = 2
-        else:
-            score = 3  # longer or multi-question
 
         # Bump for code / technical depth
         if has_code or code_fences >= 2:
@@ -1905,6 +1889,7 @@ class ReasoningEngine:
 - persona_council — совет экспертов с разными точками зрения (хорошо когда нужны мнения)
 - rubber_duck — метод «утёнка»: пошаговое проговаривание задачи (хорошо для отладки, объяснения)
 - socratic — сократический диалог: наводящие вопросы для углубления понимания
+- triz — теория решения изобретательских задач: противоречия, 40 приёмов Альтшуллера, ВПА, ИКР (для инженерных и системных задач)
 {hint_text}
 
 Ответь ОДНИМ словом — названием стратегии (например: budget_forcing). Ничего кроме названия."""
@@ -1923,6 +1908,7 @@ class ReasoningEngine:
             "persona_council": ReasoningStrategy.PERSONA_COUNCIL,
             "rubber_duck": ReasoningStrategy.RUBBER_DUCK,
             "socratic": ReasoningStrategy.SOCRATIC,
+            "triz": ReasoningStrategy.TRIZ,
         }
 
         try:
