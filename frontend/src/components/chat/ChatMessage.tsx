@@ -8,12 +8,68 @@ import { ConfidenceBar } from '@/components/reasoning/ConfidenceBar';
 import { ThinkingPanel } from '@/components/reasoning/ThinkingPanel';
 import {
   Copy, Check, Pencil, GitFork, RefreshCw,
-  Clipboard, ClipboardCheck, Play, Loader2,
+  Clipboard, ClipboardCheck, Play, Loader2, Download,
+  PanelRightOpen, Pin,
 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 import { useChatStore } from '@/stores/chatStore';
 import { useForkStore } from '@/stores/forkStore';
+import { useArtifactStore } from '@/stores/artifactStore';
+import { useCanvasStore } from '@/stores/canvasStore';
 import { STRATEGIES, getStrategy } from '@/lib/strategies';
+
+/* ── Extract code blocks from markdown and return cleaned text + code entries ── */
+
+interface ExtractedCode {
+  language: string;
+  code: string;
+}
+
+interface ExtractedBlock {
+  type: 'code' | 'mermaid';
+  language: string;
+  code: string;
+  title: string;
+}
+
+function extractCodeBlocks(markdown: string): { cleaned: string; codeBlocks: ExtractedCode[]; allBlocks: ExtractedBlock[] } {
+  const codeBlocks: ExtractedCode[] = [];
+  const allBlocks: ExtractedBlock[] = [];
+  const cleaned = markdown.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+    const trimmed = code.trimEnd();
+    if (lang === 'mermaid') {
+      allBlocks.push({ type: 'mermaid', language: 'mermaid', code: trimmed, title: 'Диаграмма' });
+      return match; // Keep mermaid blocks visible — they are diagrams, not code
+    }
+    const language = lang || 'code';
+    codeBlocks.push({ language, code: trimmed });
+    // Derive a title from first meaningful line or filename patterns
+    const firstLine = trimmed.split('\n')[0] || '';
+    const fileMatch = firstLine.match(/[#/]\s*(\S+\.\w+)/) || firstLine.match(/(\w+\.\w+)/);
+    const title = fileMatch ? fileMatch[1] : `${language} код`;
+    allBlocks.push({ type: 'code', language, code: trimmed, title });
+    return '';
+  });
+  return { cleaned: cleaned.replace(/\n{3,}/g, '\n\n').trim(), codeBlocks, allBlocks };
+}
+
+/* ── PDF download helper ── */
+
+async function downloadPdf(markdown: string, filename: string) {
+  const resp = await fetch(`${API_BASE}/api/export/pdf`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ markdown, filename, title: filename.replace(/\.pdf$/i, '') }),
+  });
+  if (!resp.ok) return;
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 /* ── Syntax highlighting ── */
 
@@ -39,6 +95,67 @@ function highlightCode(code: string): string {
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/* ── Open artifact helper ── */
+
+function openArtifactByCode(code: string) {
+  const store = useArtifactStore.getState();
+  const match = store.artifacts.find((a) => a.content === code);
+  if (match) {
+    store.setActive(match.id);
+  }
+}
+
+/* ── Mermaid Diagram Block ── */
+
+function MermaidBlock({ code }: { code: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [svg, setSvg] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const mermaid = (await import('mermaid')).default;
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: document.documentElement.classList.contains('dark') ? 'dark' : 'default',
+          fontFamily: 'Geist, system-ui, sans-serif',
+          fontSize: 13,
+        });
+        const id = `mermaid-${Math.random().toString(36).slice(2, 8)}`;
+        const { svg: rendered } = await mermaid.render(id, code);
+        if (!cancelled) setSvg(rendered);
+      } catch (e) {
+        if (!cancelled) setError(String(e));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [code]);
+
+  if (error) {
+    return (
+      <div className="rounded-lg border border-border bg-muted/30 p-3 my-3">
+        <pre className="text-xs text-muted-foreground font-mono whitespace-pre-wrap">{code}</pre>
+      </div>
+    );
+  }
+
+  return (
+    <div className="my-3 rounded-lg border border-border bg-card/50 overflow-x-auto">
+      <div ref={containerRef} className="p-4" dangerouslySetInnerHTML={{ __html: svg }} />
+      <div className="border-t border-border px-3 py-1.5 flex justify-end">
+        <button
+          onClick={() => openArtifactByCode(code)}
+          className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
+        >
+          <PanelRightOpen className="h-3 w-3" /><span>Открыть в панели</span>
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function CodeBlock({ language, code }: { language: string; code: string }) {
@@ -73,6 +190,10 @@ function CodeBlock({ language, code }: { language: string; code: string }) {
       <div className="flex items-center justify-between bg-muted/50 border-b border-border px-3 py-1.5">
         <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{language || 'код'}</span>
         <div className="flex items-center gap-1">
+          <button onClick={() => openArtifactByCode(code)}
+            className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors">
+            <PanelRightOpen className="h-3 w-3" /><span>Открыть в панели</span>
+          </button>
           {isPython && (
             <button onClick={handleRun} disabled={running}
               className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors disabled:opacity-30">
@@ -127,6 +248,26 @@ function getDomain(message: Message): string | null {
   return null;
 }
 
+/* ── Image with artifact tracking (side effect in useEffect, not render) ── */
+
+function ImageWithArtifact({ src, alt, messageId, ...props }: { src?: string; alt?: string; messageId: string; [k: string]: any }) {
+  useEffect(() => {
+    if (!src) return;
+    const aStore = useArtifactStore.getState();
+    const exists = aStore.artifacts.some((a) => a.type === 'image' && a.content === src && a.messageId === messageId);
+    if (!exists) {
+      aStore.addArtifact({
+        type: 'image',
+        title: alt || 'Изображение',
+        content: src,
+        messageId,
+      });
+    }
+  }, [src, alt, messageId]);
+
+  return <img src={src} alt={alt || ''} className="my-3 rounded-lg max-w-full" loading="lazy" {...props} />;
+}
+
 /* ── Main component ── */
 
 const ChatMessageInner = memo(function ChatMessage({ message }: { message: Message }) {
@@ -146,6 +287,39 @@ const ChatMessageInner = memo(function ChatMessage({ message }: { message: Messa
   const domain = useMemo(() => getDomain(message), [message]);
   const strategyBarClass = !isUser && message.reasoning_strategy && message.reasoning_strategy !== 'none'
     ? `strategy-bar-${message.reasoning_strategy}` : '';
+
+  // Extract code blocks from assistant messages → hide in reasoning panel
+  const { displayContent, codeBlocks, codeThinkingSteps, allBlocks } = useMemo(() => {
+    if (isUser) return { displayContent: message.content, codeBlocks: [] as ExtractedCode[], codeThinkingSteps: [] as ThinkingStep[], allBlocks: [] as ExtractedBlock[] };
+    const cleaned = cleanAssistantContent(message.content);
+    const { cleaned: withoutCode, codeBlocks: blocks, allBlocks } = extractCodeBlocks(cleaned);
+    const steps: ThinkingStep[] = blocks.map((b, i) => ({
+      step_number: i + 1,
+      strategy: 'code_generation',
+      content: `Сгенерирован код (${b.language})`,
+      duration_ms: 0,
+      metadata: { type: 'code_generation', content: b.code, language: b.language },
+    }));
+
+    return { displayContent: withoutCode, codeBlocks: blocks, codeThinkingSteps: steps, allBlocks };
+  }, [message.content, message.id, isUser]);
+
+  // Create artifacts for extracted code/mermaid blocks (side effect — must be in useEffect)
+  useEffect(() => {
+    if (isUser || allBlocks.length === 0) return;
+    const store = useArtifactStore.getState();
+    const existing = store.artifacts.filter((a) => a.messageId === message.id);
+    if (existing.length > 0) return;
+    for (const block of allBlocks) {
+      store.addArtifact({
+        type: block.type,
+        title: block.title,
+        content: block.code,
+        language: block.type === 'code' ? block.language : undefined,
+        messageId: message.id,
+      });
+    }
+  }, [message.id, isUser, allBlocks]);
 
   const handleCopy = () => { navigator.clipboard.writeText(message.content); setCopied(true); };
   const handleEdit = () => {
@@ -171,6 +345,10 @@ const ChatMessageInner = memo(function ChatMessage({ message }: { message: Messa
     store.updateSettings({ strategy: selectedStrategy });
     store.sendMessage(userMsg.content);
     setRegenOpen(false);
+  };
+
+  const handlePinToCanvas = () => {
+    useCanvasStore.getState().addFromMessage(message.content, message.conversation_id);
   };
 
   const handleConfidenceClick = () => {
@@ -247,6 +425,10 @@ const ChatMessageInner = memo(function ChatMessage({ message }: { message: Messa
               </div>
             </>
           )}
+          <button onClick={handlePinToCanvas} title="На канвас"
+            className="rounded-md p-1 text-muted-foreground/50 hover:text-foreground transition-colors">
+            <Pin className="h-4 w-4" />
+          </button>
           {/* Timestamp on hover */}
           <span className="text-[11px] font-mono text-muted-foreground/40 ml-1 tracking-wide">
             {formatTimestamp(message.created_at)}
@@ -257,6 +439,14 @@ const ChatMessageInner = memo(function ChatMessage({ message }: { message: Messa
         <div className={cn(
           domain ? `domain-${domain}` : '',
         )}>
+          {/* Code blocks hidden in reasoning panel */}
+          {!isUser && codeBlocks.length > 0 && (
+            <ThinkingPanel
+              steps={codeThinkingSteps}
+              strategy={message.reasoning_strategy || 'none'}
+            />
+          )}
+
           <div className={cn(
             'rounded-2xl px-4 py-3',
             isUser
@@ -273,13 +463,32 @@ const ChatMessageInner = memo(function ChatMessage({ message }: { message: Messa
                     code({ className, children, ...props }) {
                       const isBlock = className?.startsWith('language-');
                       if (!isBlock) return <code className={className} {...props}>{children}</code>;
-                      return <CodeBlock language={className?.replace('language-', '') || ''} code={String(children).replace(/\n$/, '')} />;
+                      const lang = className?.replace('language-', '') || '';
+                      const codeStr = String(children).replace(/\n$/, '');
+                      if (lang === 'mermaid') return <MermaidBlock code={codeStr} />;
+                      return <CodeBlock language={lang} code={codeStr} />;
                     },
                     img({ src, alt, ...props }) {
-                      return <img src={src} alt={alt || ''} className="my-3 rounded-lg max-w-full" loading="lazy" {...props} />;
+                      return <ImageWithArtifact src={src} alt={alt} messageId={message.id} {...props} />;
+                    },
+                    a({ href, children }) {
+                      const text = String(children);
+                      if (href?.endsWith('.pdf') || text.endsWith('.pdf')) {
+                        const filename = text.endsWith('.pdf') ? text : 'export.pdf';
+                        return (
+                          <button
+                            onClick={() => downloadPdf(displayContent, filename)}
+                            className="inline-flex items-center gap-1 text-foreground underline underline-offset-2 hover:opacity-70 transition-opacity"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            {children}
+                          </button>
+                        );
+                      }
+                      return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
                     },
                   }}
-                >{cleanAssistantContent(message.content)}</ReactMarkdown>
+                >{displayContent}</ReactMarkdown>
               </div>
             )}
           </div>

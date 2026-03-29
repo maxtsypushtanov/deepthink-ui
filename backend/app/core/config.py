@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     # GitHub MCP
     github_personal_access_token: str = ""
 
+    # Brave Search
+    brave_search_api_key: str = ""
+
+    # Timeouts (seconds)
+    llm_timeout: int = 120
+    mcp_timeout: int = 120
+    sandbox_timeout: int = 15
+
 
     @model_validator(mode="after")
     def derive_db_path(self) -> "Settings":

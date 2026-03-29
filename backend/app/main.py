@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.calendar import router as calendar_router
+from app.api.export import router as export_router
 from app.api.files import router as files_router
 from app.api.routes import router
 from app.api.ws import router as ws_router
@@ -73,6 +74,7 @@ app.include_router(router)
 app.include_router(ws_router)
 app.include_router(calendar_router)
 app.include_router(files_router)
+app.include_router(export_router)
 
 
 @app.get("/health")

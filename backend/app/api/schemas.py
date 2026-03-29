@@ -26,6 +26,8 @@ class ChatRequest(BaseModel):
     # Predictive reasoning prefill — skip re-detection if provided by WS prefill
     pre_domain: str | None = None
     pre_strategy: str | None = None
+    # Image generation model (OpenRouter)
+    image_model: str = "google/gemini-2.5-flash-preview:thinking"
 
 
 class ConversationCreate(BaseModel):

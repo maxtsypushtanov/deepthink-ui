@@ -15,6 +15,54 @@ import { ChatSearch } from './ChatSearch';
 import { getStrategy } from '@/lib/strategies';
 import { cn } from '@/lib/utils';
 
+/* ── Friendly error messages ── */
+
+function friendlyError(raw: string): string {
+  const lower = raw.toLowerCase();
+
+  // Network errors
+  if (lower.includes('nodename') || lower.includes('servname') || lower.includes('getaddrinfo') || lower.includes('dns'))
+    return 'Нет подключения к интернету. Проверь сеть и попробуй снова.';
+  if (lower.includes('fetch') || lower.includes('networkerror') || lower.includes('failed to fetch') || lower.includes('network request failed'))
+    return 'Не удалось связаться с сервером. Проверь подключение к интернету.';
+  if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('econnaborted'))
+    return 'Запрос занял слишком много времени. Попробуй ещё раз.';
+  if (lower.includes('econnrefused') || lower.includes('connection refused'))
+    return 'Сервер недоступен. Убедись, что бэкенд запущен.';
+  if (lower.includes('econnreset') || lower.includes('socket hang up'))
+    return 'Соединение оборвалось. Попробуй ещё раз.';
+
+  // Auth errors
+  if (lower.includes('no api key') || lower.includes('api_key'))
+    return 'API-ключ не настроен. Добавь ключ в настройках, чтобы Нейрон заработал.';
+  if (lower.includes('401') || lower.includes('unauthorized') || lower.includes('authentication'))
+    return 'Ключ API не принят. Проверь, что ключ актуальный и введён правильно.';
+  if (lower.includes('403') || lower.includes('forbidden'))
+    return 'Доступ запрещён. Возможно, ключ не имеет нужных прав.';
+
+  // Rate limits
+  if (lower.includes('429') || lower.includes('rate limit') || lower.includes('too many'))
+    return 'Слишком много запросов. Подожди немного и попробуй снова.';
+
+  // Server errors
+  if (lower.includes('500') || lower.includes('internal server'))
+    return 'Что-то пошло не так на сервере. Попробуй ещё раз.';
+  if (lower.includes('502') || lower.includes('503') || lower.includes('bad gateway') || lower.includes('service unavailable'))
+    return 'Сервис временно недоступен. Попробуй через пару минут.';
+
+  // LLM-specific
+  if (lower.includes('context length') || lower.includes('too long') || lower.includes('max tokens'))
+    return 'Сообщение слишком длинное для выбранной модели. Попробуй сократить или выбрать модель с большим контекстом.';
+  if (lower.includes('content filter') || lower.includes('content_filter'))
+    return 'Запрос заблокирован фильтром контента провайдера.';
+
+  // If it looks like a raw technical error (starts with [ or contains errno), wrap it
+  if (raw.startsWith('[') || lower.includes('errno'))
+    return 'Произошла техническая ошибка. Попробуй ещё раз.';
+
+  return raw;
+}
+
 /* ── Plan Card ── */
 
 function PlanCard() {
@@ -185,12 +233,10 @@ export function ChatArea() {
               <AlertCircle className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-foreground/70">
-                  {error.includes('No API key') || error.includes('api_key')
-                    ? 'API-ключ не настроен. Добавьте ключ в настройках, чтобы начать работу.'
-                    : error}
+                  {friendlyError(error)}
                 </p>
                 <div className="mt-2 flex gap-2">
-                  {(error.includes('No API key') || error.includes('api_key')) && (
+                  {(error.toLowerCase().includes('no api key') || error.toLowerCase().includes('api_key') || error.toLowerCase().includes('401') || error.toLowerCase().includes('authentication')) && (
                     <button
                       onClick={() => { clearError(); window.dispatchEvent(new CustomEvent('deepthink:open-settings')); }}
                       className="flex items-center gap-1 rounded-lg bg-foreground px-3 py-1.5 text-xs text-background hover:bg-foreground/90 transition-colors"
@@ -198,7 +244,7 @@ export function ChatArea() {
                       Открыть настройки
                     </button>
                   )}
-                  {messages.some((m) => m.role === 'user') && !error.includes('No API key') && (
+                  {messages.some((m) => m.role === 'user') && !error.toLowerCase().includes('no api key') && (
                     <button onClick={handleRetry} className="flex items-center gap-1 rounded-lg bg-muted px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
                       <RefreshCw className="h-3 w-3" />Повторить
                     </button>

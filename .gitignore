@@ -15,6 +15,12 @@ build/
 *.db-shm
 *.db-wal
 
+# State
+proactive_state.json
+
+# Claude Code
+.claude/
+
 # IDE
 .vscode/
 .idea/

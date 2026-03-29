@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { useChatStore } from '@/stores/chatStore';
 import { useWebSocketReasoning } from '@/hooks/useWebSocketReasoning';
 import { cn, generateId } from '@/lib/utils';
-import { ArrowUp, Square, X, Quote, FileText, Loader2, Paperclip } from 'lucide-react';
+import { ArrowUp, Square, X, Quote, FileText, Loader2, Paperclip, Mic } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 import { toast } from '@/hooks/useToast';
 
@@ -302,7 +302,19 @@ export function ChatInput() {
               rows={1}
               className="flex-1 resize-none bg-transparent px-4 py-3 text-[15px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none"
             />
-            <div className="pr-2">
+            <div className="flex items-center gap-1 pr-2">
+              <button
+                onClick={toggleVoice}
+                className={cn(
+                  'flex h-8 w-8 items-center justify-center rounded-lg transition-all duration-150',
+                  isListening
+                    ? 'bg-red-500/15 text-red-400 animate-pulse'
+                    : 'text-muted-foreground/30 hover:text-muted-foreground hover:bg-muted/50',
+                )}
+                title={isListening ? 'Остановить запись' : 'Голосовой ввод'}
+              >
+                <Mic className="h-4 w-4" />
+              </button>
               {isStreaming ? (
                 <button onClick={stopStreaming} className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground/10 text-foreground/60 transition-colors hover:bg-foreground/15">
                   <Square className="h-3.5 w-3.5" />

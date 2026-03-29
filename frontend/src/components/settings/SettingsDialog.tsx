@@ -25,7 +25,7 @@ const PROVIDER_META: Record<string, { label: string; description: string; defaul
   },
 };
 
-type Tab = 'providers' | 'model' | 'reasoning';
+type Tab = 'providers' | 'model' | 'reasoning' | 'tools';
 
 export function SettingsDialog({ open, onOpenChange }: Props) {
   const settings = useChatStore((s) => s.settings);
@@ -109,8 +109,8 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
 
         {/* Tabs */}
         <div className="flex gap-1 border-b border-border px-4">
-          {(['providers', 'model', 'reasoning'] as Tab[]).map((t) => {
-            const labels: Record<Tab, string> = { providers: 'Провайдеры', model: 'Модель', reasoning: 'Рассуждение' };
+          {(['providers', 'model', 'reasoning', 'tools'] as Tab[]).map((t) => {
+            const labels: Record<Tab, string> = { providers: 'Провайдеры', model: 'Модель', reasoning: 'Рассуждение', tools: 'Инструменты' };
             return (
               <button
                 key={t}
@@ -311,6 +311,110 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                 value={settings.treeDepth}
                 onChange={(v) => updateSettings({ treeDepth: v })}
               />
+
+            </div>
+          )}
+
+          {tab === 'tools' && (
+            <div className="space-y-5">
+              {/* Image generation */}
+              <div className="space-y-3">
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">Генерация изображений</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Модель для создания картинок и инфографики через OpenRouter</p>
+                </div>
+                <select
+                  value={settings.imageModel}
+                  onChange={(e) => updateSettings({ imageModel: e.target.value })}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40"
+                >
+                  <optgroup label="Google">
+                    <option value="google/gemini-2.5-flash-preview:thinking">Gemini 2.5 Flash — быстрый, бесплатный</option>
+                    <option value="google/gemini-2.5-pro-preview">Gemini 2.5 Pro — качественный</option>
+                    <option value="google/gemini-3.1-flash-preview:image">Gemini 3.1 Flash — новейший</option>
+                  </optgroup>
+                  <optgroup label="OpenAI">
+                    <option value="openai/gpt-image-1">GPT Image 1 — стандартный</option>
+                    <option value="openai/gpt-5-image">GPT-5 Image — лучший, дороже</option>
+                    <option value="openai/gpt-5-image-mini">GPT-5 Image Mini — быстрый</option>
+                  </optgroup>
+                  <optgroup label="Другие">
+                    <option value="bytedance/seedream-4.5">Seedream 4.5 (ByteDance)</option>
+                  </optgroup>
+                </select>
+                <p className="text-[11px] text-muted-foreground/60">
+                  Используется для команд «нарисуй», «создай инфографику», «визуализируй» и т.д.
+                </p>
+              </div>
+
+              <div className="h-px bg-border" />
+
+              {/* Web search */}
+              <div className="space-y-3">
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">Веб-поиск</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Brave Search API — автоматический поиск актуальной информации</p>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    placeholder="API Key"
+                    value={keys['brave'] || ''}
+                    onChange={(e) => setKeys((k) => ({ ...k, brave: e.target.value }))}
+                    className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40"
+                  />
+                  <a
+                    href="https://api-dashboard.search.brave.com/app/keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground hover:bg-muted transition-colors whitespace-nowrap"
+                  >
+                    Получить ↗
+                  </a>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!keys['brave']) return;
+                    setSaving('brave');
+                    await api.saveProvider({ provider: 'brave', api_key: keys['brave'], base_url: '', enabled: true });
+                    setSaving(null);
+                    setKeys((k) => ({ ...k, brave: '' }));
+                  }}
+                  disabled={!keys['brave'] || saving === 'brave'}
+                  className="rounded-lg bg-foreground px-4 py-1.5 text-xs text-background hover:bg-foreground/90 disabled:opacity-30 transition-colors"
+                >
+                  {saving === 'brave' ? 'Сохраняю...' : 'Сохранить'}
+                </button>
+                <p className="text-[11px] text-muted-foreground/60">
+                  Срабатывает автоматически когда вопрос требует свежих данных. 1000 запросов/мес бесплатно.
+                </p>
+              </div>
+
+              <div className="h-px bg-border" />
+
+              {/* Python sandbox */}
+              <div className="space-y-2">
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">Python Sandbox</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Выполнение кода для вычислений и графиков</p>
+                </div>
+                <p className="text-[11px] text-muted-foreground/60">
+                  pandas, numpy, matplotlib. Срабатывает автоматически для задач «посчитай», «построй график», «создай таблицу».
+                </p>
+              </div>
+
+              <div className="h-px bg-border" />
+
+              {/* GitHub */}
+              <div className="space-y-2">
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">GitHub</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Issues, PR, код, коммиты через MCP</p>
+                </div>
+                <p className="text-[11px] text-muted-foreground/60">
+                  Настройте GitHub токен в .env (GITHUB_PERSONAL_ACCESS_TOKEN) или во вкладке «Провайдеры».
+                </p>
+              </div>
             </div>
           )}
         </div>

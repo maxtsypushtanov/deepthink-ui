@@ -103,6 +103,11 @@ export function CommandPalette() {
       // Voice
       { id: 'voice', category: 'Voice', name: 'Голосовой ввод', icon: <Mic className="h-4 w-4" />,
         action: () => window.dispatchEvent(new CustomEvent('deepthink:toggle-voice')) },
+      // Tools
+      { id: 'artifacts', category: 'Tools', name: 'Панель артефактов', icon: <Eye className="h-4 w-4" />, shortcut: '⌘E',
+        action: () => { import('@/stores/artifactStore').then(m => m.useArtifactStore.getState().togglePanel()); } },
+      { id: 'canvas', category: 'Tools', name: 'Пространство мышления', icon: <GitBranch className="h-4 w-4" />, shortcut: '⌘⇧K',
+        action: () => { import('@/stores/canvasStore').then(m => m.useCanvasStore.getState().toggleCanvas()); } },
       // Settings
       { id: 'settings', category: 'Settings', name: 'Настройки', icon: <Settings className="h-4 w-4" />, shortcut: '⌘,',
         action: () => window.dispatchEvent(new CustomEvent('deepthink:open-settings')) },

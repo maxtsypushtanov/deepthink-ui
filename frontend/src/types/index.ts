@@ -89,7 +89,7 @@ export type SSEEvent =
   | { event: 'thinking_step'; data: ThinkingStep }
   | { event: 'thinking_end'; data: Record<string, unknown> }
   | { event: 'content_delta'; data: { content: string; tokens?: number } }
-  | { event: 'done'; data: { message_id: string; tokens_used?: number; model?: string } }
+  | { event: 'done'; data: { message_id?: string; tokens_used?: number; model?: string; images?: string[]; generated_images?: string[]; mermaid_code?: string } }
   | { event: 'error'; data: { error: string } }
   | { event: 'calendar_draft'; data: Record<string, unknown> }
   | { event: 'execution_plan'; data: { strategy: string; strategy_label: string; domain: string; domain_label: string; steps: string[]; estimated_calls: number } }
@@ -108,4 +108,5 @@ export interface ChatSettings {
   bestOfN: number;
   treeBreadth: number;
   treeDepth: number;
+  imageModel: string;
 }

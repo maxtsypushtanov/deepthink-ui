@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import io
 import re
+import threading
 import traceback
 from contextlib import redirect_stdout, redirect_stderr
 
@@ -76,21 +77,24 @@ def execute_table_code(code: str, table_text: str, file_type: str) -> dict:
     stderr_capture = io.StringIO()
 
     try:
-        import signal
+        exec_error: list[str] = []
 
-        def _timeout_handler(signum, frame):
+        def _target():
+            try:
+                with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+                    exec(full_code, safe_globals)
+            except Exception as e:
+                exec_error.append(str(e))
+
+        thread = threading.Thread(target=_target, daemon=True)
+        thread.start()
+        thread.join(timeout=EXEC_TIMEOUT)
+
+        if thread.is_alive():
             raise TimeoutError("Execution timed out")
 
-        # Set timeout (Unix only)
-        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-        signal.alarm(EXEC_TIMEOUT)
-
-        try:
-            with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
-                exec(full_code, safe_globals)
-        finally:
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, old_handler)
+        if exec_error:
+            raise RuntimeError(exec_error[0])
 
         output = stdout_capture.getvalue().strip()
         if not output:

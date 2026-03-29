@@ -69,6 +69,16 @@ function lightClean(text: string): string {
 }
 
 /**
+ * Strip code blocks from streaming content so they don't flash in the chat.
+ */
+function stripCodeBlocks(text: string): string {
+  return text
+    .replace(/```(?!mermaid)\w*\n[\s\S]*?```/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
  * ThinkingOrb — a living SVG glyph that encodes strategy, progress, and phase
  * through BEHAVIOR, not text. Each strategy has a unique visual signature.
  *
@@ -252,8 +262,8 @@ export function StreamingMessage({ content, isThinking, thinkingSteps, strategy,
 
   const strategyBarClass = strategy && strategy !== 'none' ? `strategy-bar-${strategy}` : '';
 
-  // Light clean: only strip <thinking> tags, keep everything else visible during streaming
-  const displayContent = content ? lightClean(content) : '';
+  // Light clean: strip <thinking> tags and code blocks during streaming
+  const displayContent = content ? stripCodeBlocks(lightClean(content)) : '';
 
   return (
     <div className="mb-6">

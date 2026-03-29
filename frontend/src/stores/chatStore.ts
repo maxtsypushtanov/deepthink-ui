@@ -84,7 +84,35 @@ const DEFAULT_SETTINGS: ChatSettings = {
   bestOfN: 3,
   treeBreadth: 3,
   treeDepth: 2,
+  imageModel: 'google/gemini-2.5-flash-preview:thinking',
 };
+
+const RESET_STREAMING: StreamingState = {
+  isStreaming: false,
+  currentContent: '',
+  thinkingSteps: [],
+  isThinking: false,
+  strategyUsed: null,
+  currentPersona: null,
+  clarificationQuestion: null,
+  tokensGenerated: 0,
+};
+
+function buildChatBody(settings: ChatSettings, overrides: Record<string, unknown> = {}) {
+  return {
+    model: settings.model,
+    provider: settings.provider,
+    reasoning_strategy: settings.strategy === 'auto' ? 'none' : settings.strategy,
+    temperature: settings.temperature,
+    max_tokens: settings.maxTokens,
+    budget_rounds: settings.budgetRounds,
+    best_of_n: settings.bestOfN,
+    tree_breadth: settings.treeBreadth,
+    tree_depth: settings.treeDepth,
+    image_model: settings.imageModel,
+    ...overrides,
+  };
+}
 
 let abortController: AbortController | null = null;
 let contentBuffer = '';
@@ -136,14 +164,11 @@ function flushContentBuffer() {
         const content = s.streaming.currentContent;
         const hasClarification = !!s.streaming.clarificationQuestion;
         const resetStreaming = {
-          isStreaming: false,
-          currentContent: '',
+          ...RESET_STREAMING,
           thinkingSteps: hasClarification ? s.streaming.thinkingSteps : [],
           strategyUsed: hasClarification ? s.streaming.strategyUsed : null,
-          isThinking: false,
           currentPersona: hasClarification ? s.streaming.currentPersona : null,
           clarificationQuestion: s.streaming.clarificationQuestion,
-          tokensGenerated: 0,
         };
         if (!content || !content.trim()) {
           return { streaming: resetStreaming };
@@ -277,14 +302,11 @@ async function handleSSEStream(
               // Preserve clarification question — don't reset if user needs to answer
               const hasClarification = !!s.streaming.clarificationQuestion;
               const resetStreaming = {
-                isStreaming: false,
-                currentContent: '',
+                ...RESET_STREAMING,
                 thinkingSteps: hasClarification ? s.streaming.thinkingSteps : [],
                 strategyUsed: hasClarification ? s.streaming.strategyUsed : null,
-                isThinking: false,
                 currentPersona: hasClarification ? s.streaming.currentPersona : null,
                 clarificationQuestion: s.streaming.clarificationQuestion,
-                tokensGenerated: 0,
               };
               // Don't add empty assistant messages
               if (!content || !content.trim()) {
@@ -302,7 +324,22 @@ async function handleSSEStream(
                 const imgMarkdown = images.map((b64: string, i: number) =>
                   `\n\n![Результат ${i + 1}](data:image/png;base64,${b64})`
                 ).join('');
-                finalContent = content + imgMarkdown;
+                finalContent = finalContent + imgMarkdown;
+              }
+
+              // Append AI-generated images if present
+              const genImages = data?.generated_images as string[] | undefined;
+              if (genImages && genImages.length > 0) {
+                const genImgMarkdown = genImages.map((url: string, i: number) =>
+                  `\n\n![Сгенерировано ${i + 1}](${url})`
+                ).join('');
+                finalContent = finalContent + genImgMarkdown;
+              }
+
+              // Append Mermaid diagram if present (from infographic)
+              const mermaidCode = data?.mermaid_code as string | undefined;
+              if (mermaidCode) {
+                finalContent = finalContent + `\n\n\`\`\`mermaid\n${mermaidCode}\n\`\`\``;
               }
 
               const assistantMsg: Message = {
@@ -374,16 +411,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   folders: [],
   activeConversationId: null,
   messages: [],
-  streaming: {
-    isStreaming: false,
-    currentContent: '',
-    thinkingSteps: [],
-    strategyUsed: null,
-    isThinking: false,
-    currentPersona: null,
-    clarificationQuestion: null,
-    tokensGenerated: 0,
-  },
+  streaming: { ...RESET_STREAMING },
   settings: DEFAULT_SETTINGS,
   calendarMode: false,
   githubMode: false,
@@ -409,11 +437,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       executionPlan: null,
       calendarDraft: null,
       error: null,
-      streaming: {
-        isStreaming: false, currentContent: '', thinkingSteps: [],
-        strategyUsed: null, isThinking: false, currentPersona: null,
-        clarificationQuestion: null, tokensGenerated: 0,
-      },
+      streaming: { ...RESET_STREAMING },
     });
     try {
       const msgs = await api.getMessages(id);
@@ -433,11 +457,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         executionPlan: null,
         calendarDraft: null,
         error: null,
-        streaming: {
-          isStreaming: false, currentContent: '', thinkingSteps: [],
-          strategyUsed: null, isThinking: false, currentPersona: null,
-          clarificationQuestion: null, tokensGenerated: 0,
-        },
+        streaming: { ...RESET_STREAMING },
       }));
       return conv.id;
     } catch (e: any) {
@@ -494,31 +514,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     // For "none"/"auto" strategy or very short messages, skip planning — stream directly
     const isCalendar = get().calendarMode || autoCalendar;
     if (settings.strategy === 'none' || settings.strategy === 'auto' || content.trim().length < 10 || isCalendar || get().githubMode) {
-      set((s) => ({
-        streaming: {
-          isStreaming: true, currentContent: '', thinkingSteps: [],
-          strategyUsed: null, isThinking: false, currentPersona: null,
-          clarificationQuestion: null, tokensGenerated: 0,
-        },
-      }));
+      set({ streaming: { ...RESET_STREAMING, isStreaming: true } });
 
-      const body = {
+      const body = buildChatBody(settings, {
         conversation_id: activeConversationId,
         message: content,
-        model: settings.model,
-        provider: settings.provider,
         reasoning_strategy: settings.strategy,
-        temperature: settings.temperature,
-        max_tokens: settings.maxTokens,
-        budget_rounds: settings.budgetRounds,
-        best_of_n: settings.bestOfN,
-        tree_breadth: settings.treeBreadth,
-        tree_depth: settings.treeDepth,
         calendar_mode: isCalendar,
         github_mode: get().githubMode,
         ...(prefill?.domain && { pre_domain: prefill.domain }),
         ...(prefill?.strategy && { pre_strategy: prefill.strategy }),
-      };
+      });
 
       await handleSSEStream(body, get, set, (data) => {
         if (data?.calendar_draft) set({ calendarDraft: data.calendar_draft });
@@ -536,22 +542,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const resp = await fetch(`${API_BASE}/api/chat/plan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: JSON.stringify(buildChatBody(settings, {
           message: content,
-          model: settings.model,
-          provider: settings.provider,
           reasoning_strategy: settings.strategy,
-          temperature: settings.temperature,
-          max_tokens: settings.maxTokens,
-          budget_rounds: settings.budgetRounds,
-          best_of_n: settings.bestOfN,
-          tree_breadth: settings.treeBreadth,
-          tree_depth: settings.treeDepth,
           calendar_mode: isCalendar,
           github_mode: get().githubMode,
           ...(prefill?.domain && { pre_domain: prefill.domain }),
           ...(prefill?.strategy && { pre_strategy: prefill.strategy }),
-        }),
+        })),
       });
 
       if (resp.ok) {
@@ -559,31 +557,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         // Auto-accept simple plans (1 call) — don't burden user with confirmation
         if (plan.estimated_calls <= 1 || plan.strategy === 'none') {
           // Execute directly with the strategy from the plan
-          set((s) => ({
-            streaming: {
-              isStreaming: true, currentContent: '', thinkingSteps: [],
-              strategyUsed: null, isThinking: false, currentPersona: null,
-              clarificationQuestion: null, tokensGenerated: 0,
-            },
-          }));
+          set({ streaming: { ...RESET_STREAMING, isStreaming: true } });
 
-          const autoBody = {
+          const autoBody = buildChatBody(settings, {
             conversation_id: activeConversationId,
             message: content,
-            model: settings.model,
-            provider: settings.provider,
             reasoning_strategy: plan.strategy || 'none',
-            temperature: settings.temperature,
-            max_tokens: settings.maxTokens,
-            budget_rounds: settings.budgetRounds,
-            best_of_n: settings.bestOfN,
-            tree_breadth: settings.treeBreadth,
-            tree_depth: settings.treeDepth,
             calendar_mode: isCalendar,
             github_mode: get().githubMode,
             ...(prefill?.domain && { pre_domain: prefill.domain }),
             ...(prefill?.strategy && { pre_strategy: prefill.strategy }),
-          };
+          });
 
           await handleSSEStream(autoBody, get, set, (data) => {
             if (data?.calendar_draft) set({ calendarDraft: data.calendar_draft });
@@ -601,31 +585,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
 
     // Fallback: execute directly
-    set((s) => ({
-      streaming: {
-        isStreaming: true, currentContent: '', thinkingSteps: [],
-        strategyUsed: null, isThinking: false, currentPersona: null,
-        clarificationQuestion: null, tokensGenerated: 0,
-      },
-    }));
+    set({ streaming: { ...RESET_STREAMING, isStreaming: true } });
 
-    const body = {
+    const body = buildChatBody(settings, {
       conversation_id: activeConversationId,
       message: content,
-      model: settings.model,
-      provider: settings.provider,
-      reasoning_strategy: (settings.strategy as string) === 'auto' ? 'none' : settings.strategy,
-      temperature: settings.temperature,
-      max_tokens: settings.maxTokens,
-      budget_rounds: settings.budgetRounds,
-      best_of_n: settings.bestOfN,
-      tree_breadth: settings.treeBreadth,
-      tree_depth: settings.treeDepth,
       calendar_mode: isCalendar,
       github_mode: get().githubMode,
       ...(prefill?.domain && { pre_domain: prefill.domain }),
       ...(prefill?.strategy && { pre_strategy: prefill.strategy }),
-    };
+    });
 
     await handleSSEStream(body, get, set, (data) => {
       if (data?.calendar_draft) set({ calendarDraft: data.calendar_draft });
@@ -650,20 +619,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       },
     }));
 
-    const body = {
+    const body = buildChatBody(settings, {
       conversation_id: activeConversationId,
       message: answer,
-      model: settings.model,
-      provider: settings.provider,
       reasoning_strategy: settings.strategy,
-      temperature: settings.temperature,
-      max_tokens: settings.maxTokens,
-      budget_rounds: settings.budgetRounds,
-      best_of_n: settings.bestOfN,
-      tree_breadth: settings.treeBreadth,
-      tree_depth: settings.treeDepth,
       clarification_context: clarificationContext,
-    };
+    });
 
     await handleSSEStream(body, get, set);
   },
@@ -750,36 +711,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set({ executionPlan: null });
 
     const { settings, activeConversationId } = get();
-    set((s) => ({
-      streaming: {
-        isStreaming: true,
-        currentContent: '',
-        thinkingSteps: [],
-        strategyUsed: null,
-        isThinking: false,
-        currentPersona: null,
-        clarificationQuestion: null,
-        tokensGenerated: 0,
-      },
+    set({
+      streaming: { ...RESET_STREAMING, isStreaming: true },
       error: null,
-    }));
+    });
 
-    const body = {
+    const body = buildChatBody(settings, {
       conversation_id: activeConversationId,
       message: plan.pendingMessage,
-      model: settings.model,
-      provider: settings.provider,
       reasoning_strategy: plan.strategy,  // Use the planned strategy
-      temperature: settings.temperature,
-      max_tokens: settings.maxTokens,
-      budget_rounds: settings.budgetRounds,
-      best_of_n: settings.bestOfN,
-      tree_breadth: settings.treeBreadth,
-      tree_depth: settings.treeDepth,
       calendar_mode: get().calendarMode,
       github_mode: get().githubMode,
       confirm_plan: true,
-    };
+    });
 
     await handleSSEStream(body, get, set, (data) => {
       if (data?.calendar_draft) {
@@ -810,7 +754,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     let fullContent = '';
 
     set((s) => ({
-      streaming: { ...s.streaming, isStreaming: true, currentContent: '', thinkingSteps: [], isThinking: false, strategyUsed: null, currentPersona: null, clarificationQuestion: null, tokensGenerated: 0 },
+      streaming: { ...RESET_STREAMING, isStreaming: true },
     }));
 
     const processLine = (line: string) => {

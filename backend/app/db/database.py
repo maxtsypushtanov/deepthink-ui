@@ -74,11 +74,45 @@ CREATE TABLE IF NOT EXISTS user_memory (
     decay_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS conversation_summaries (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    keywords TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS model_tiers (
+    tier TEXT PRIMARY KEY,
+    model TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS neuron_identity (
+    layer TEXT PRIMARY KEY,
+    content TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    version INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS neuron_episodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT,
+    episode TEXT NOT NULL DEFAULT '',
+    self_insight TEXT NOT NULL DEFAULT '',
+    user_insight TEXT NOT NULL DEFAULT '',
+    emotional_valence REAL DEFAULT 0.0,
+    importance REAL DEFAULT 0.5,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_conversations_folder ON conversations(folder_id);
 CREATE INDEX IF NOT EXISTS idx_user_memory_category ON user_memory(category);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_memory_key ON user_memory(category, key);
+CREATE INDEX IF NOT EXISTS idx_conversation_summaries_conv ON conversation_summaries(conversation_id);
 """
 
 MIGRATIONS = [
@@ -355,6 +389,147 @@ async def get_provider_settings() -> list[dict]:
             d["extra"] = {}
         result.append(d)
     return result
+
+
+async def get_model_tiers() -> dict[str, str]:
+    """Get model tier configuration."""
+    db = await get_db()
+    cursor = await db.execute("SELECT tier, model FROM model_tiers")
+    rows = await cursor.fetchall()
+    return {r["tier"]: r["model"] for r in rows}
+
+
+async def set_model_tier(tier: str, model: str) -> None:
+    """Set model for a tier."""
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO model_tiers (tier, model) VALUES (?, ?) ON CONFLICT(tier) DO UPDATE SET model = ?",
+        (tier, model, model),
+    )
+    await db.commit()
+
+
+async def get_provider_base_url(provider: str) -> str | None:
+    """Get base URL for a specific provider."""
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT base_url FROM provider_settings WHERE provider = ? AND enabled = 1",
+        (provider,),
+    )
+    row = await cursor.fetchone()
+    return row["base_url"] if row and row["base_url"] else None
+
+
+# ── Conversation Summaries (RAG) ──
+
+async def save_conversation_summary(conversation_id: str, summary: str, keywords: str = "") -> dict:
+    """Save or update a conversation summary for RAG retrieval."""
+    _db = await get_db()
+    sid = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    # Upsert: one summary per conversation
+    cursor = await _db.execute(
+        "SELECT id FROM conversation_summaries WHERE conversation_id = ?",
+        (conversation_id,),
+    )
+    existing = await cursor.fetchone()
+    if existing:
+        sid = existing["id"]
+        await _db.execute(
+            "UPDATE conversation_summaries SET summary = ?, keywords = ?, created_at = ? WHERE id = ?",
+            (summary, keywords, now, sid),
+        )
+    else:
+        await _db.execute(
+            "INSERT INTO conversation_summaries (id, conversation_id, summary, keywords, created_at) VALUES (?, ?, ?, ?, ?)",
+            (sid, conversation_id, summary, keywords, now),
+        )
+    await _db.commit()
+    return {"id": sid, "conversation_id": conversation_id, "summary": summary, "keywords": keywords, "created_at": now}
+
+
+async def get_all_conversation_summaries() -> list[dict]:
+    """Get all conversation summaries for building the vector index."""
+    _db = await get_db()
+    cursor = await _db.execute(
+        "SELECT cs.id, cs.conversation_id, cs.summary, cs.keywords, cs.created_at, c.title "
+        "FROM conversation_summaries cs LEFT JOIN conversations c ON cs.conversation_id = c.id "
+        "ORDER BY cs.created_at DESC LIMIT 500"
+    )
+    rows = await cursor.fetchall()
+    return [dict(row) for row in rows]
+
+
+# ── Neuron Identity ──
+
+async def get_neuron_layer(layer: str) -> dict | None:
+    conn = await get_db()
+    cursor = await conn.execute("SELECT content FROM neuron_identity WHERE layer = ?", (layer,))
+    row = await cursor.fetchone()
+    if row:
+        try:
+            return json.loads(row["content"])
+        except (json.JSONDecodeError, TypeError):
+            return None
+    return None
+
+
+async def get_all_neuron_layers() -> dict[str, dict]:
+    conn = await get_db()
+    cursor = await conn.execute("SELECT layer, content FROM neuron_identity")
+    rows = await cursor.fetchall()
+    result = {}
+    for r in rows:
+        try:
+            result[r["layer"]] = json.loads(r["content"])
+        except (json.JSONDecodeError, TypeError):
+            result[r["layer"]] = {}
+    return result
+
+
+async def upsert_neuron_layer(layer: str, data: dict) -> None:
+    conn = await get_db()
+    data_json = json.dumps(data, ensure_ascii=False)
+    await conn.execute(
+        "INSERT INTO neuron_identity (layer, content, updated_at) VALUES (?, ?, datetime('now')) "
+        "ON CONFLICT(layer) DO UPDATE SET content = ?, updated_at = datetime('now')",
+        (layer, data_json, data_json),
+    )
+    await conn.commit()
+
+
+async def add_neuron_episode(conversation_id: str, episode: str, self_insight: str, user_insight: str, valence: float = 0.0, importance: float = 0.5) -> None:
+    conn = await get_db()
+    await conn.execute(
+        "INSERT INTO neuron_episodes (conversation_id, episode, self_insight, user_insight, emotional_valence, importance) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (conversation_id, episode, self_insight, user_insight, valence, importance),
+    )
+    await conn.commit()
+
+
+async def get_episode_count() -> int:
+    conn = await get_db()
+    cursor = await conn.execute("SELECT COUNT(*) FROM neuron_episodes")
+    row = await cursor.fetchone()
+    return row[0] if row else 0
+
+
+async def get_recent_episodes(limit: int = 10) -> list[dict]:
+    conn = await get_db()
+    cursor = await conn.execute(
+        "SELECT * FROM neuron_episodes ORDER BY created_at DESC LIMIT ?", (limit,)
+    )
+    return [dict(r) for r in await cursor.fetchall()]
+
+
+async def get_self_insights(limit: int = 20) -> list[str]:
+    conn = await get_db()
+    cursor = await conn.execute(
+        "SELECT self_insight FROM neuron_episodes WHERE self_insight != '' ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    )
+    return [r["self_insight"] for r in await cursor.fetchall()]
 
 
 async def search_conversations(query: str) -> list[dict]:

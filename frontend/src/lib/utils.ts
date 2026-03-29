@@ -94,7 +94,10 @@ export function cleanAssistantContent(text: string): string {
   // Phase 4: Convert <br> tags to newlines
   cleaned = cleaned.replace(/<br\s*\/?>/gi, '\n');
 
-  // Phase 5: Clean up whitespace
+  // Phase 5: Strip fake image links (not data: URIs and not real URLs from generation pipeline)
+  cleaned = cleaned.replace(/!\[([^\]]*)\]\((?!data:)(?!https?:\/\/)[^)]*\)/g, '');
+
+  // Phase 6: Clean up whitespace
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
   return cleaned;
 }

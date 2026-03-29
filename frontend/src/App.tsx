@@ -1,21 +1,28 @@
 import { useEffect, useState, useCallback, lazy, Suspense } from 'react';
 import { Sidebar } from '@/components/layout/Sidebar';
-import { InspectPanel, type InspectMode } from '@/components/layout/InspectPanel';
+import type { InspectMode } from '@/components/layout/InspectPanel';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ToastContainer } from '@/components/Toast';
-import { OnboardingOverlay } from '@/components/OnboardingOverlay';
 import { useThemeStore } from '@/stores/themeStore';
 import { useChatStore } from '@/stores/chatStore';
+import { useArtifactStore } from '@/stores/artifactStore';
+import { useCanvasStore } from '@/stores/canvasStore';
 import { api } from '@/lib/api';
 
 const CommandPalette = lazy(() => import('@/components/CommandPalette').then((m) => ({ default: m.CommandPalette })));
 const SettingsDialog = lazy(() => import('@/components/settings/SettingsDialog').then((m) => ({ default: m.SettingsDialog })));
+const Canvas = lazy(() => import('@/components/canvas/Canvas').then((m) => ({ default: m.Canvas })));
+const OnboardingOverlay = lazy(() => import('@/components/OnboardingOverlay').then((m) => ({ default: m.OnboardingOverlay })));
+const ArtifactPanel = lazy(() => import('@/components/artifacts/ArtifactPanel').then((m) => ({ default: m.ArtifactPanel })));
+const ArtifactList = lazy(() => import('@/components/artifacts/ArtifactList').then((m) => ({ default: m.ArtifactList })));
+const InspectPanel = lazy(() => import('@/components/layout/InspectPanel').then((m) => ({ default: m.InspectPanel })));
 
 export default function App() {
   const theme = useThemeStore((s) => s.mode);
   const loadConversations = useChatStore((s) => s.loadConversations);
   const createConversation = useChatStore((s) => s.createConversation);
+  const canvasOpen = useCanvasStore((s) => s.isOpen);
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -69,6 +76,8 @@ export default function App() {
       if (e.key === 'i' && !e.shiftKey) { e.preventDefault(); toggleInspect('metadata'); }
       if (e.key === ',') { e.preventDefault(); setSettingsOpen(true); }
       if (e.key === 'd' && e.shiftKey) { e.preventDefault(); useThemeStore.getState().toggle(); }
+      if (e.key === 'e') { e.preventDefault(); useArtifactStore.getState().togglePanel(); }
+      if (e.key === 'k' && e.shiftKey) { e.preventDefault(); useCanvasStore.getState().toggleCanvas(); }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
@@ -99,7 +108,9 @@ export default function App() {
   if (needsOnboarding) {
     return (
       <div className="h-screen bg-background text-foreground">
-        <OnboardingOverlay onComplete={() => setNeedsOnboarding(false)} />
+        <Suspense fallback={null}>
+          <OnboardingOverlay onComplete={() => setNeedsOnboarding(false)} />
+        </Suspense>
         <ToastContainer />
       </div>
     );
@@ -114,9 +125,13 @@ export default function App() {
         </ErrorBoundary>
       </main>
 
-      <InspectPanel open={inspectOpen} mode={inspectMode} onClose={closeInspect}>
-        {inspectContent}
-      </InspectPanel>
+      <Suspense fallback={null}>
+        <ArtifactPanel />
+        <InspectPanel open={inspectOpen} mode={inspectMode} onClose={closeInspect}>
+          {inspectContent}
+        </InspectPanel>
+        <ArtifactList />
+      </Suspense>
 
       {/* Ghost sidebar — renders as fixed overlay, takes 0px in layout */}
       <Sidebar />
@@ -124,6 +139,7 @@ export default function App() {
       <Suspense fallback={null}>
         <CommandPalette />
         {settingsOpen && <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />}
+        {canvasOpen && <Canvas />}
       </Suspense>
       <ToastContainer />
     </div>

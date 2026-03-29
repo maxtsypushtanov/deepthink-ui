@@ -1,4 +1,4 @@
-import type { Conversation, Message, Folder } from '@/types';
+import type { Conversation, Message, Folder, ProviderSettings, ModelInfo } from '@/types';
 
 export const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -69,15 +69,15 @@ export const api = {
 
   // ── Settings ──
 
-  getProviders: () => fetchJSON<any[]>('/api/settings/providers'),
+  getProviders: (): Promise<ProviderSettings[]> => fetchJSON<ProviderSettings[]>('/api/settings/providers'),
 
   saveProvider: (data: { provider: string; api_key: string; base_url?: string; enabled?: boolean }) =>
-    fetchJSON<any>('/api/settings/providers', {
+    fetchJSON<ProviderSettings>('/api/settings/providers', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
-  listModels: (provider: string) => fetchJSON<any[]>(`/api/models/${provider}`),
+  listModels: (provider: string): Promise<ModelInfo[]> => fetchJSON<ModelInfo[]>(`/api/models/${provider}`),
 };
 
 export async function* streamChat(

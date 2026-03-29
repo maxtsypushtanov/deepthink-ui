@@ -9,6 +9,10 @@ interface ThemeStore {
   setAccentHue: (hue: number) => void;
 }
 
+function getSystemTheme(): ThemeMode {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 function getSavedTheme(): ThemeMode {
   try {
     const stored = localStorage.getItem('theme');
@@ -16,7 +20,7 @@ function getSavedTheme(): ThemeMode {
   } catch {
     // localStorage may be unavailable (e.g. in private browsing)
   }
-  return 'dark';
+  return getSystemTheme();
 }
 
 function getSavedAccentHue(): number {
@@ -74,3 +78,13 @@ export const useThemeStore = create<ThemeStore>((set) => ({
     set({ accentHue: clamped });
   },
 }));
+
+// Follow system theme when user hasn't explicitly chosen one
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+  try {
+    if (localStorage.getItem('theme')) return; // user made an explicit choice
+  } catch { /* ignore */ }
+  const next: ThemeMode = e.matches ? 'dark' : 'light';
+  applyThemeClass(next);
+  useThemeStore.setState({ mode: next });
+});

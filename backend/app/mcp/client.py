@@ -80,10 +80,11 @@ class MCPClient:
             "call_id": call_id,
         })
 
+        from app.core.config import settings as app_settings
         logger.debug("MCP call_tool: %s(%s)", name, safe_params)
         result = await asyncio.wait_for(
             self._session.call_tool(name, arguments=safe_params),
-            timeout=120.0,
+            timeout=float(app_settings.mcp_timeout),
         )
 
         # Flatten TextContent list into a single dict

@@ -13,7 +13,7 @@ import base64
 import io
 import logging
 import re
-import signal
+import threading
 import traceback
 from contextlib import redirect_stdout, redirect_stderr
 
@@ -102,15 +102,24 @@ def execute_python(code: str) -> dict:
     stderr_capture = io.StringIO()
 
     try:
-        old_handler = signal.signal(signal.SIGALRM, lambda s, f: (_ for _ in ()).throw(TimeoutError("Timeout")))
-        signal.alarm(EXEC_TIMEOUT)
+        exec_error: list[str] = []
 
-        try:
-            with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
-                exec(code, safe_globals)
-        finally:
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, old_handler)
+        def _target():
+            try:
+                with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+                    exec(code, safe_globals)
+            except Exception as e:
+                exec_error.append(str(e))
+
+        thread = threading.Thread(target=_target, daemon=True)
+        thread.start()
+        thread.join(timeout=EXEC_TIMEOUT)
+
+        if thread.is_alive():
+            raise TimeoutError("Timeout")
+
+        if exec_error:
+            raise RuntimeError(exec_error[0])
 
         output = stdout_capture.getvalue().strip()
 
@@ -166,12 +175,18 @@ CODE_GEN_PROMPT = """Ты пишешь Python-код для выполнения
 
 def should_use_python(user_msg: str) -> bool:
     """Detect if the user's request would benefit from Python execution."""
+    # Skip if this is an image/infographic generation request (handled by image_gen/infographic tools)
+    from app.tools.image_gen import needs_image_generation
+    from app.tools.infographic import needs_infographic
+    if needs_image_generation(user_msg) or needs_infographic(user_msg):
+        return False
+
     patterns = [
         # Calculations
         r'(?:рассчитай|посчитай|вычисли|подсчитай|calculate|compute)',
         r'(?:сколько будет|чему равно|найди значение)',
         # Charts/graphs
-        r'(?:график|диаграмм|chart|graph|plot|визуализ|нарисуй|построй)',
+        r'(?:график|диаграмм|chart|graph|plot|визуализ|построй)',
         r'(?:гистограмм|pie.?chart|scatter|bar.?chart|круговая)',
         # Data analysis
         r'(?:таблиц[аеу]|table|сортиров|фильтр|группиров|pivot)',
